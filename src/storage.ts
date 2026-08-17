@@ -132,6 +132,32 @@ export async function setSignerEnabled(enabled: boolean): Promise<void> {
 }
 
 /**
+ * Whether a key was generated that the user has not confirmed backing up yet.
+ */
+export async function isKeyBackupPending(): Promise<boolean> {
+  const data = await browser.storage.local.get(ConfigurationKeys.KEY_BACKUP_PENDING);
+  return (data[ConfigurationKeys.KEY_BACKUP_PENDING] as boolean) ?? false;
+}
+
+export async function setKeyBackupPending(pending: boolean): Promise<void> {
+  await browser.storage.local.set({
+    [ConfigurationKeys.KEY_BACKUP_PENDING]: pending
+  });
+}
+
+/**
+ * Stores a freshly generated key as the first profile and flags it as not backed up yet.
+ * Only valid while no key is stored, which also means PIN protection cannot be on.
+ * @param privateKey - Hex private key
+ */
+export async function createFirstProfile(privateKey: string): Promise<void> {
+  await updateActivePrivateKey(privateKey);
+  // materializes the profile entry for the new key
+  await readProfiles();
+  await setKeyBackupPending(true);
+}
+
+/**
  * Gets the encrypted private key from storage
  */
 export async function getEncryptedPrivateKey(): Promise<string | null> {
@@ -380,7 +406,14 @@ export async function readActivePermissions(): Promise<PermissionConfig> {
   const nowSeconds = Math.round(Date.now() / 1000);
   for (let host in permissions) {
     const perm = permissions[host];
-    if (shouldRemoveStoredPermission(perm.condition, perm.created_at, nowSeconds, perm.duration_seconds)) {
+    if (
+      shouldRemoveStoredPermission(
+        perm.condition,
+        perm.created_at,
+        nowSeconds,
+        perm.duration_seconds
+      )
+    ) {
       delete permissions[host];
       needsUpdate = true;
     }

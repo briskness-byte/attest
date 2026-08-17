@@ -1,15 +1,18 @@
 import browser from 'webextension-polyfill';
 import { createRoot } from 'react-dom/client';
-import { getPublicKey, nip19 } from 'nostr-tools';
+import { getPublicKey, generateSecretKey, nip19 } from 'nostr-tools';
 import React, { useState, useEffect } from 'react';
 
 import { ProfilesConfig } from './types';
 import * as Storage from './storage';
-import { truncatePublicKeys } from './common';
+import { convertHexToUint8Array, convertUint8ArrayToHex, truncatePublicKeys } from './common';
 
 import logotype from './assets/logo/logotype.png';
 import CopyIcon from './assets/icons/copy-outline.svg';
 import CogIcon from './assets/icons/cog-outline.svg';
+import AddCircleIcon from './assets/icons/add-circle-outline.svg';
+import DownloadIcon from './assets/icons/download-outline.svg';
+import CheckmarkCircleIcon from './assets/icons/checkmark-circle-outline.svg';
 
 function Popup() {
   let [publicKeyHexa, setPublicKeyHexa] = useState<string>();
@@ -17,9 +20,15 @@ function Popup() {
   let [selectedKeyType, setSelectedKeyType] = useState('npub');
   let [profiles, setProfiles] = useState<ProfilesConfig>({});
   let [signerEnabled, setSignerEnabled] = useState<boolean>(true);
+  let [isBackupPending, setBackupPending] = useState(false);
+  let [profileName, setProfileName] = useState('');
+  let [isCreatingKey, setCreatingKey] = useState(false);
 
   useEffect(() => {
     Storage.isSignerEnabled().then(setSignerEnabled);
+    Promise.all([Storage.isKeyBackupPending(), Storage.isPinEnabled()]).then(
+      ([pending, pinEnabled]) => setBackupPending(pending && !pinEnabled)
+    );
   }, []);
 
   useEffect(() => {
@@ -76,6 +85,70 @@ function Popup() {
     await Storage.setSignerEnabled(enabled);
   }
 
+  /** One click from an empty extension to a usable identity. */
+  async function handleCreateKey() {
+    if (isCreatingKey) return;
+    setCreatingKey(true);
+    try {
+      const privateKey = convertUint8ArrayToHex(generateSecretKey());
+      await Storage.createFirstProfile(privateKey);
+
+      setPublicKeyHexa(await Storage.getActivePublicKey());
+      setProfiles(await Storage.readProfiles());
+      setBackupPending(true);
+    } catch (err) {
+      console.error('Could not create the key.', err);
+    } finally {
+      setCreatingKey(false);
+    }
+  }
+
+  /** The plain-text key, available only while PIN protection is off. */
+  async function readSecretKeyNsec(): Promise<string> {
+    const privateKey = await Storage.readActivePrivateKey();
+    if (!privateKey) throw new Error('No private key stored');
+    return nip19.nsecEncode(convertHexToUint8Array(privateKey));
+  }
+
+  async function handleCopySecretKey() {
+    try {
+      await navigator.clipboard.writeText(await readSecretKeyNsec());
+    } catch (err) {
+      console.error('Could not copy the secret key.', err);
+    }
+  }
+
+  async function handleDownloadSecretKey() {
+    try {
+      const nsec = await readSecretKeyNsec();
+      const url = URL.createObjectURL(new Blob([nsec], { type: 'text/plain' }));
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'nostr-secret-key.txt';
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Could not download the secret key.', err);
+    }
+  }
+
+  async function handleBackupDone() {
+    await Storage.setKeyBackupPending(false);
+    setBackupPending(false);
+  }
+
+  async function handleProfileNameSave() {
+    const name = profileName.trim();
+    if (!name || !publicKeyHexa) return;
+
+    const profile = profiles[publicKeyHexa];
+    if (!profile) return;
+
+    profile.name = name;
+    await Storage.updateProfile(profile, publicKeyHexa);
+    setProfiles({ ...profiles, [publicKeyHexa]: profile });
+  }
+
   function goToOptionsPage() {
     browser.tabs
       .create({
@@ -98,7 +171,7 @@ function Popup() {
 
     // Always update active public key first
     await Storage.setActivePublicKey(pubKey);
-    
+
     // Then update private key based on PIN status
     const pinEnabled = await Storage.isPinEnabled();
     if (pinEnabled) {
@@ -138,15 +211,57 @@ function Popup() {
         </span>
       </div>
       {!publicKeyHexa ? (
-        <p>
-          You don't have a private key set. Use the{' '}
-          <a href="#" onClick={goToOptionsPage}>
-            options page
-          </a>{' '}
-          to set one.
-        </p>
+        <div className="onboarding">
+          <p>Create a key to start signing, or bring one you already have.</p>
+          <button className="button" onClick={handleCreateKey} disabled={isCreatingKey}>
+            <AddCircleIcon /> Create a new key
+          </button>
+          <p className="text-help">
+            Already have one?{' '}
+            <a href="#" onClick={goToOptionsPage}>
+              Import it in the options page
+            </a>
+            .
+          </p>
+        </div>
       ) : (
         <>
+          {isBackupPending && (
+            <div className="backup-notice">
+              <p>
+                <strong>Back up your secret key.</strong> It exists only in this browser. If you
+                lose it, this identity cannot be recovered by anyone.
+              </p>
+              <div className="input-group">
+                <button onClick={handleCopySecretKey}>
+                  <CopyIcon /> Copy
+                </button>
+                <button onClick={handleDownloadSecretKey}>
+                  <DownloadIcon /> Download
+                </button>
+              </div>
+              <div className="input-group">
+                <input
+                  type="text"
+                  placeholder="Name this profile (optional)"
+                  value={profileName}
+                  onChange={e => setProfileName(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleProfileNameSave()}
+                />
+                <button
+                  onClick={handleProfileNameSave}
+                  disabled={
+                    !profileName.trim() || profiles[publicKeyHexa]?.name === profileName.trim()
+                  }
+                >
+                  Save
+                </button>
+              </div>
+              <button className="button button-success" onClick={handleBackupDone}>
+                <CheckmarkCircleIcon /> I saved my key
+              </button>
+            </div>
+          )}
           <p>Your public key:</p>
           <div className="public-key">
             <div className="pubkey-show">

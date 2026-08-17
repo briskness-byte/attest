@@ -27,15 +27,24 @@ async window.nostr.nip44.decrypt(peer, ciphertext): string // takes peer pubkey,
 * By yourself from file: look into [Releases](https://github.com/diegogurpegui/nos2x-fox/releases)
 * From the site [Firefox Add-on](https://addons.mozilla.org/en-US/firefox/addon/nos2x-fox/)
 
-<<<<<<< HEAD
-<<<<<<< HEAD
+## Getting started
+
+Open the extension and click **Create a new key**. That generates a key, stores it as your first
+profile, and shows the matching public key — no options page, no further steps.
+
+The popup then asks you to back that key up, because it exists only in this browser profile and
+nobody can recover it for you. Copy it or download it, optionally give the profile a name, and
+confirm. The reminder stays until you do.
+
+If you already have a key, import it through the options page instead.
+
 ## Turning the signer on and off
 
 Click the nos2x-fox icon in the toolbar and use the switch at the top of the popup to turn the
 signer off for every website at once. While it is off, `window.nostr` calls are refused right away
 and no authorization prompt appears; the toolbar icon shows an `OFF` badge. Your keys, relays and
 permissions are kept, so flipping the switch back on restores everything.
-=======
+
 ## Authorizations
 
 When a website asks for something the extension does not have a decision for yet, a prompt appears.
@@ -49,8 +58,7 @@ it expires. A rejection covers the requested capability and everything above it:
 events* also refuses encryption requests, but still lets the site ask for your public key.
 
 Remembered decisions are listed per profile in the options page, where they can be revoked.
->>>>>>> feat/reject-durations
-=======
+
 ## Authorizing a site once instead of three times
 
 Permission levels widen downward: a grant for signing also covers reading the public key, but not
@@ -61,7 +69,6 @@ When the request does not already cover everything, the prompt offers **Authoriz
 this site**, which grants every capability to that host at once. Use it for clients you trust and
 use daily; use the narrower buttons for everything else. It can be revoked per site in the options
 page like any other grant.
->>>>>>> feat/authorize-all-capabilities
 
 ## PIN Protection
 

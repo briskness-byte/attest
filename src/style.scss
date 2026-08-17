@@ -268,7 +268,8 @@ button,
   }
 }
 
-.text-help, .text-help * {
+.text-help,
+.text-help * {
   font-size: 0.8em;
   color: $color-text-muted;
 }
@@ -530,6 +531,40 @@ input,
 
     input:focus-visible + .switch-slider {
       outline: 2px solid $color-info;
+    }
+  }
+
+  .onboarding {
+    text-align: center;
+
+    .button {
+      width: 100%;
+      justify-content: center;
+    }
+
+    .text-help {
+      margin-bottom: 0;
+    }
+  }
+
+  .backup-notice {
+    margin-bottom: 1em;
+    padding: 0.7em;
+    border: 1px solid $color-warning;
+    border-radius: $radius-default;
+    background-color: $color-warning-light;
+
+    p {
+      margin-top: 0;
+    }
+
+    .input-group {
+      margin-bottom: 0.5em;
+    }
+
+    .button {
+      width: 100%;
+      justify-content: center;
     }
   }
 
