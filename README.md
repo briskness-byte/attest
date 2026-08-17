@@ -27,12 +27,28 @@ async window.nostr.nip44.decrypt(peer, ciphertext): string // takes peer pubkey,
 * By yourself from file: look into [Releases](https://github.com/diegogurpegui/nos2x-fox/releases)
 * From the site [Firefox Add-on](https://addons.mozilla.org/en-US/firefox/addon/nos2x-fox/)
 
+<<<<<<< HEAD
 ## Turning the signer on and off
 
 Click the nos2x-fox icon in the toolbar and use the switch at the top of the popup to turn the
 signer off for every website at once. While it is off, `window.nostr` calls are refused right away
 and no authorization prompt appears; the toolbar icon shows an `OFF` badge. Your keys, relays and
 permissions are kept, so flipping the switch back on restores everything.
+=======
+## Authorizations
+
+When a website asks for something the extension does not have a decision for yet, a prompt appears.
+Both answers can be remembered for the same set of durations:
+
+* **Authorize** — forever, for 5 minutes / 1 hour / 8 hours, for a custom duration, or just this once.
+* **Reject** — forever, for 5 minutes / 1 hour / 8 hours, for a custom duration, or just this once.
+
+A remembered rejection refuses further requests from that site without opening a prompt again, until
+it expires. A rejection covers the requested capability and everything above it: rejecting *sign
+events* also refuses encryption requests, but still lets the site ask for your public key.
+
+Remembered decisions are listed per profile in the options page, where they can be revoked.
+>>>>>>> feat/reject-durations
 
 ## PIN Protection
 
