@@ -6,6 +6,7 @@ import { getPublicKey, nip19 } from 'nostr-tools';
 import {
   convertHexToUint8Array,
   getAllowedCapabilities,
+  MAX_PERMISSION_LEVEL,
   truncatePublicKeys,
   derivePublicKeyFromPrivateKey,
   customAuthorizationDurationSeconds,
@@ -131,7 +132,8 @@ function Prompt() {
   function submitDecision(
     decision: PermissionDecision,
     condition: AuthorizationCondition,
-    durationSeconds?: number
+    durationSeconds?: number,
+    level: number = openPrompts?.[activePromptIndex]?.level
   ) {
     if (!openPrompts?.length) {
       return;
@@ -140,7 +142,7 @@ function Prompt() {
       prompt: true,
       id: openPrompts[activePromptIndex].id,
       host: openPrompts[activePromptIndex].host,
-      level: openPrompts[activePromptIndex].level,
+      level,
       condition,
       decision
     };
@@ -157,6 +159,18 @@ function Prompt() {
       setCustomDurationDecision(null);
       submitDecision(decision, condition);
     };
+  }
+
+  function handleAuthorizeEverything(ev: React.MouseEvent) {
+    ev.preventDefault();
+    setCustomDurationError('');
+    setCustomDurationDecision(null);
+    submitDecision(
+      PermissionDecision.ALLOW,
+      AuthorizationCondition.FOREVER,
+      undefined,
+      MAX_PERMISSION_LEVEL
+    );
   }
 
   function showCustomDurationHandler(decision: PermissionDecision) {
@@ -327,6 +341,15 @@ function Prompt() {
         >
           <ShieldCheckmarkIcon /> Authorize forever
         </button>
+        {openPrompts[activePromptIndex].level < MAX_PERMISSION_LEVEL && (
+          <button
+            className="button"
+            onClick={handleAuthorizeEverything}
+            title="Grant every capability to this site, so it does not ask again as it needs more"
+          >
+            <ShieldCheckmarkIcon /> Authorize everything from this site
+          </button>
+        )}
         <div className="button-group">
           <button
             className="button"

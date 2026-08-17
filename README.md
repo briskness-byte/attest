@@ -28,6 +28,7 @@ async window.nostr.nip44.decrypt(peer, ciphertext): string // takes peer pubkey,
 * From the site [Firefox Add-on](https://addons.mozilla.org/en-US/firefox/addon/nos2x-fox/)
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 ## Turning the signer on and off
 
 Click the nos2x-fox icon in the toolbar and use the switch at the top of the popup to turn the
@@ -49,6 +50,18 @@ events* also refuses encryption requests, but still lets the site ask for your p
 
 Remembered decisions are listed per profile in the options page, where they can be revoked.
 >>>>>>> feat/reject-durations
+=======
+## Authorizing a site once instead of three times
+
+Permission levels widen downward: a grant for signing also covers reading the public key, but not
+the other way around. A site that first asks for your public key, then to sign, then to encrypt
+therefore opens three prompts.
+
+When the request does not already cover everything, the prompt offers **Authorize everything from
+this site**, which grants every capability to that host at once. Use it for clients you trust and
+use daily; use the narrower buttons for everything else. It can be revoked per site in the options
+page like any other grant.
+>>>>>>> feat/authorize-all-capabilities
 
 ## PIN Protection
 
