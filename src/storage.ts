@@ -114,6 +114,32 @@ export async function setNostrLinkHandlerUrlTemplate(template: string): Promise<
 }
 
 /**
+ * Whether a key was generated that the user has not confirmed backing up yet.
+ */
+export async function isKeyBackupPending(): Promise<boolean> {
+  const data = await browser.storage.local.get(ConfigurationKeys.KEY_BACKUP_PENDING);
+  return (data[ConfigurationKeys.KEY_BACKUP_PENDING] as boolean) ?? false;
+}
+
+export async function setKeyBackupPending(pending: boolean): Promise<void> {
+  await browser.storage.local.set({
+    [ConfigurationKeys.KEY_BACKUP_PENDING]: pending
+  });
+}
+
+/**
+ * Stores a freshly generated key as the first profile and flags it as not backed up yet.
+ * Only valid while no key is stored, which also means PIN protection cannot be on.
+ * @param privateKey - Hex private key
+ */
+export async function createFirstProfile(privateKey: string): Promise<void> {
+  await updateActivePrivateKey(privateKey);
+  // materializes the profile entry for the new key
+  await readProfiles();
+  await setKeyBackupPending(true);
+}
+
+/**
  * Gets the encrypted private key from storage
  */
 export async function getEncryptedPrivateKey(): Promise<string | null> {

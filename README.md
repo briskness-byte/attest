@@ -27,6 +27,17 @@ async window.nostr.nip44.decrypt(peer, ciphertext): string // takes peer pubkey,
 * By yourself from file: look into [Releases](https://github.com/diegogurpegui/nos2x-fox/releases)
 * From the site [Firefox Add-on](https://addons.mozilla.org/en-US/firefox/addon/nos2x-fox/)
 
+## Getting started
+
+Open the extension and click **Create a new key**. That generates a key, stores it as your first
+profile, and shows the matching public key — no options page, no further steps.
+
+The popup then asks you to back that key up, because it exists only in this browser profile and
+nobody can recover it for you. Copy it or download it, optionally give the profile a name, and
+confirm. The reminder stays until you do.
+
+If you already have a key, import it through the options page instead.
+
 ## PIN Protection
 
 nos2x-fox includes optional PIN protection to encrypt your private keys. When enabled, your private keys are encrypted using a PIN you choose, and you'll need to enter the PIN each time you use the extension (after the first unlock, the PIN is cached for 10 minutes).
