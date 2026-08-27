@@ -1,11 +1,11 @@
 {
-  "name": "nos2x-fox",
-  "description": "Nostr Signer Extension (for Firefox)",
+  "name": "nos2x-fox (personal build)",
+  "description": "Nostr Signer Extension for Firefox \u2014 personal build with an on/off switch, timed rejections and one-click onboarding.",
   "version": "1.20.1",
   "homepage_url": "https://github.com/diegogurpegui/nos2x-fox",
   "browser_specific_settings": {
     "gecko": {
-      "id": "{fdacee2c-bab4-490d-bc4b-ecdd03d5d68a}"
+      "id": "nos2x-fox-personal@brisknessbyte.com"
     }
   },
   "manifest_version": 2,
@@ -21,27 +21,37 @@
     "browser_style": true
   },
   "background": {
-    "scripts": ["background.js"]
+    "scripts": [
+      "background.js"
+    ]
   },
   "browser_action": {
-    "default_title": "nos2x-fox",
+    "default_title": "nos2x-fox (personal)",
     "default_popup": "popup.html"
   },
   "content_scripts": [
     {
       "run_at": "document_end",
-      "matches": ["<all_urls>"],
-      "js": ["content-script.js"]
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "content-script.js"
+      ]
     }
   ],
   "protocol_handlers": [
     {
       "protocol": "ext+nostr",
-      "name": "nos2x-fox",
+      "name": "nos2x-fox (personal)",
       "uriTemplate": "/nostr-handler.html?uri=%s"
     }
   ],
-  "permissions": ["storage"],
-  "web_accessible_resources": ["nostr-provider.js"],
+  "permissions": [
+    "storage"
+  ],
+  "web_accessible_resources": [
+    "nostr-provider.js"
+  ],
   "content_security_policy": "script-src 'self' 'unsafe-eval'; object-src 'self';"
 }
