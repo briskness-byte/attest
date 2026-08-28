@@ -61,20 +61,17 @@ window.nostr = {
 
   _call(type: string, params: PromptParams) {
     const id = Math.random().toString().slice(-4);
+    // The call is logged, its arguments are not. `params` is the whole event you are about to
+    // sign, or the ciphertext you are about to decrypt, and this console belongs to the page.
+    // The script that called knows them already — but every other script on the page can read
+    // them here by wrapping console.log, and people paste consoles into bug reports.
     console.log(
-      '%c[nos2x-fox:%c' +
-        id +
-        '%c]%c calling %c' +
-        type +
-        '%c with %c' +
-        JSON.stringify(params || {}),
+      '%c[nos2x-fox:%c' + id + '%c]%c calling %c' + type,
       'background-color:#f1b912;font-weight:bold;color:white',
       'background-color:#f1b912;font-weight:bold;color:#a92727',
       'background-color:#f1b912;color:white;font-weight:bold',
       'color:auto',
-      'font-weight:bold;color:#08589d;font-family:monospace',
-      'color:auto',
-      'font-weight:bold;color:#90b12d;font-family:monospace'
+      'font-weight:bold;color:#08589d;font-family:monospace'
     );
 
     return new Promise((resolve, reject) => {
@@ -112,18 +109,15 @@ window.addEventListener('message', message => {
     window.nostr._requests[message.data.id].resolve(message.data.response);
   }
 
+  // Same reason: a decrypted direct message is a result, and it does not belong in a log the
+  // page can read. Whether it succeeded is enough to debug against.
   console.log(
-    '%c[nos2x-fox:%c' +
-      message.data.id +
-      '%c]%c result: %c' +
-      JSON.stringify(
-        message?.data?.response || message?.data?.response?.error?.message || {}
-      ),
+    '%c[nos2x-fox:%c' + message.data.id + '%c]%c ' +
+      (message.data.response.error ? 'failed' : 'ok'),
     'background-color:#f1b912;font-weight:bold;color:white',
     'background-color:#f1b912;font-weight:bold;color:#a92727',
     'background-color:#f1b912;color:white;font-weight:bold',
-    'color:auto',
-    'font-weight:bold;color:#08589d'
+    'color:auto'
   );
 
   delete window.nostr._requests[message.data.id];
