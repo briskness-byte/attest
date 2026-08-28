@@ -41,7 +41,25 @@ const pinPromptMap: Record<
   { id: string; windowId?: number; resolve: Function; reject: Function; mode: string }
 > = {};
 
+/** Handlers that must never answer something living in a tab. */
+const EXTENSION_PAGES_ONLY = new Set([
+  'setupPin',
+  'verifyPin',
+  'disablePin',
+  'openPinPrompt',
+  'encryptPrivateKey',
+  'getCachedPin'
+]);
+
 browser.runtime.onMessage.addListener(async (message, sender) => {
+  // A content script runs in a tab; the options page, the popup and the prompts do not. Anything
+  // touching the PIN or the key itself is for those, and the content script's allow-list is not
+  // the only thing that should be saying so — this is the half that survives someone adding a
+  // second bridge later and forgetting.
+  if (sender?.tab && EXTENSION_PAGES_ONLY.has(message?.type)) {
+    return { success: false, error: 'not available to pages' };
+  }
+
   // Check if it's a PIN message
   if (
     message.type === 'setupPin' ||
