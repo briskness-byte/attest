@@ -69,7 +69,11 @@ esbuild
     ],
     sourcemap: isProd ? false : 'inline',
     define: {
-      global: 'window'
+      global: 'window',
+      // Without this, esbuild leaves React's `process.env.NODE_ENV` checks in place and the
+      // development build ships: every dev-only warning path, and four bundles several times the
+      // size they need to be.
+      'process.env.NODE_ENV': isProd ? '"production"' : '"development"'
     }
   })
   .then(() =>
