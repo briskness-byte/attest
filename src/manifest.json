@@ -1,11 +1,11 @@
 {
-  "name": "nos2x-fox (personal build)",
-  "description": "Nostr Signer Extension for Firefox \u2014 personal build with an on/off switch, timed rejections and one-click onboarding.",
+  "name": "Attest",
+  "description": "A Nostr signer for Firefox that asks first. Sign events without handing your key to a website.",
   "version": "1.20.1",
-  "homepage_url": "https://github.com/diegogurpegui/nos2x-fox",
+  "homepage_url": "https://github.com/briskness-byte/attest",
   "browser_specific_settings": {
     "gecko": {
-      "id": "nos2x-fox-personal@brisknessbyte.com",
+      "id": "attest@brisknessbyte.com",
       "data_collection_permissions": {
         "required": [
           "none"
@@ -32,7 +32,7 @@
     ]
   },
   "browser_action": {
-    "default_title": "nos2x-fox (personal)",
+    "default_title": "Attest",
     "default_popup": "popup.html"
   },
   "content_scripts": [
@@ -49,7 +49,7 @@
   "protocol_handlers": [
     {
       "protocol": "ext+nostr",
-      "name": "nos2x-fox (personal)",
+      "name": "Attest",
       "uriTemplate": "/nostr-handler.html?uri=%s"
     }
   ],

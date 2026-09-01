@@ -1,10 +1,10 @@
 {
-  "name": "nos2x-fox",
-  "description": "Nostr Signer Extension (for Firefox)",
+  "name": "attest",
+  "description": "A Nostr signer for Firefox that asks first. Sign events without handing your key to a website.",
   "version": "1.20.1",
   "license": "SEE LICENSE IN LICENSE",
   "repository": {
-    "url": "https://github.com/diegogurpegui/nos2x-fox",
+    "url": "https://github.com/briskness-byte/attest",
     "type": "github"
   },
   "scripts": {

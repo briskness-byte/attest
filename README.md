@@ -1,144 +1,51 @@
-![](src/assets/logo/logotype.png)
-# nos2x-fox (nos2x for Firefox)
-notes and other stuff signed by an extension
+# Attest
 
-This is a fork from https://github.com/fiatjaf/nos2x focused on Firefox and related browsers.
+A Nostr signer for Firefox. It holds your key so a website never has to, and it asks before it
+signs anything on your behalf.
 
-## Nostr Signer Extension
+**This is a fork of [nos2x-fox](https://github.com/diegogurpegui/nos2x-fox) by Diego H. Gurpegui,**
+which is itself a Firefox port of [nos2x](https://github.com/fiatjaf/nos2x) by fiatjaf. Almost all
+of the code here is theirs. Like the original, this is released into the public domain under the
+Unlicense.
 
-This allows you to sign [Nostr](https://github.com/fiatjaf/nostr) events on web-apps without having to give them your keys.
+## What is different from nos2x-fox
 
-It provides a `window.nostr` object which has the following methods:
+- **A global on/off switch.** One toggle that stops the signer answering any site, without
+  uninstalling it or deleting per-site permissions.
+- **Rejections that expire.** Refusing a site can be remembered for a while rather than forever or
+  not at all, and an earlier refusal can be found and undone.
+- **Authorize every capability for a site in one click**, instead of answering the same prompt
+  once per capability.
+- **Create your first key from the popup**, so a new user is not sent to the options page before
+  anything works.
+- **A page can no longer ask the extension for the PIN.** The bridge between a web page and the
+  extension forwarded any message type it was given, and the background answered `getCachedPin`
+  above every permission check, so any website could read the PIN that decrypts the private key.
+  It now forwards an allow-list of the seven calls a page has any business making, and the
+  background separately refuses the privileged ones to anything running in a tab.
+- **No `'unsafe-eval'`.** The manifest allowed it while `eval` and `new Function` appear zero times
+  in the shipped code.
+- **Nothing is logged to the page console but the fact that a call happened.** It used to log the
+  full event being signed and the plaintext coming back out of `nip04.decrypt`.
+- **React's production build actually ships**, which halved four bundles.
 
-```javascript
-async window.nostr.getPublicKey(): string // returns your public key as hex
-async window.nostr.signEvent(event): Event // returns the full event object signed
-async window.nostr.getRelays(): { [url: string]: RelayPolicy } // returns a map of relays
+The first four were offered upstream as pull requests. The security fix was reported privately.
 
-async window.nostr.nip04.encrypt(peer, plaintext): string // returns ciphertext+iv as specified in nip04
-async window.nostr.nip04.decrypt(peer, ciphertext): string // takes ciphertext+iv as specified in nip04
+## Building
 
-async window.nostr.nip44.encrypt(peer, plaintext): string // takes peer pubkey, plaintext, returns ciphertext as specified in nip-44
-async window.nostr.nip44.decrypt(peer, ciphertext): string // takes peer pubkey, ciphertext, returns plaintext as specified in nip-44
+```sh
+yarn install
+yarn run build      # into dist/
+yarn run package    # a .xpi into var/releases/
 ```
+
+There is no minifier and no obfuscation: the file that ships is the file in this repository.
 
 ## Install
 
-* By yourself from file: look into [Releases](https://github.com/diegogurpegui/nos2x-fox/releases)
-* From the site [Firefox Add-on](https://addons.mozilla.org/en-US/firefox/addon/nos2x-fox/)
+Load `dist/` as a temporary add-on from `about:debugging`, or install a signed build from
+[addons.mozilla.org](https://addons.mozilla.org/).
 
-## Getting started
+## Licence
 
-Open the extension and click **Create a new key**. That generates a key, stores it as your first
-profile, and shows the matching public key — no options page, no further steps.
-
-The popup then asks you to back that key up, because it exists only in this browser profile and
-nobody can recover it for you. Copy it or download it, optionally give the profile a name, and
-confirm. The reminder stays until you do.
-
-If you already have a key, import it through the options page instead.
-
-## Turning the signer on and off
-
-Click the nos2x-fox icon in the toolbar and use the switch at the top of the popup to turn the
-signer off for every website at once. While it is off, `window.nostr` calls are refused right away
-and no authorization prompt appears; the toolbar icon shows an `OFF` badge. Your keys, relays and
-permissions are kept, so flipping the switch back on restores everything.
-
-## Authorizations
-
-When a website asks for something the extension does not have a decision for yet, a prompt appears.
-Both answers can be remembered for the same set of durations:
-
-* **Authorize** — forever, for 5 minutes / 1 hour / 8 hours, for a custom duration, or just this once.
-* **Reject** — forever, for 5 minutes / 1 hour / 8 hours, for a custom duration, or just this once.
-
-A remembered rejection refuses further requests from that site without opening a prompt again, until
-it expires. A rejection covers the requested capability and everything above it: rejecting *sign
-events* also refuses encryption requests, but still lets the site ask for your public key.
-
-Remembered decisions are listed per profile in the options page, where they can be revoked.
-
-## Authorizing a site once instead of three times
-
-Permission levels widen downward: a grant for signing also covers reading the public key, but not
-the other way around. A site that first asks for your public key, then to sign, then to encrypt
-therefore opens three prompts.
-
-When the request does not already cover everything, the prompt offers **Authorize everything from
-this site**, which grants every capability to that host at once. Use it for clients you trust and
-use daily; use the narrower buttons for everything else. It can be revoked per site in the options
-page like any other grant.
-
-## PIN Protection
-
-nos2x-fox includes optional PIN protection to encrypt your private keys. When enabled, your private keys are encrypted using a PIN you choose, and you'll need to enter the PIN each time you use the extension (after the first unlock, the PIN is cached for 10 minutes).
-
-### How to Enable/Disable PIN Protection
-
-1. Open the extension options page
-2. In the "Keys" section, click "Enable PIN Protection" or "Disable PIN Protection"
-3. Enter your PIN (4-6 digits)
-4. If enabling, confirm your PIN
-5. If disabling, enter your PIN one last time to verify
-
-### Security Model
-
-- **Ephemeral PIN Cache**: The PIN is stored in memory only and is lost when the browser closes, regardless of how much time has passed
-- **Encrypted Storage**: When PIN protection is enabled, private keys are encrypted before being stored. No plain-text private keys are stored anywhere
-- **Global Protection**: PIN protection applies to all profiles simultaneously
-
-### Encryption Specification
-
-Private keys are encrypted using the following specification:
-
-- **Algorithm**: AES-GCM-256
-- **Key Derivation**: PBKDF2 with SHA-256
-- **Iterations**: 100,000
-- **Salt**: 16 bytes (random, stored with encrypted data)
-- **IV**: 12 bytes (random, stored with encrypted data)
-- **Cache Duration**: 10 minutes (ephemeral, lost on browser close)
-
-The encrypted data is stored as a JSON string containing base64-encoded salt, IV, and ciphertext.
-
-## Screenshots
-
-![](screenshots/screenshot_popup.png)
-![](screenshots/screenshot_options.png)
-![](screenshots/screenshot_prompt.png)
-
-## Development
-
-To run the plugin from this code:
-
-```
-$ git clone https://github.com/diegogurpegui/nos2x-fox
-$ cd nos2x-fox
-$ yarn install
-$ yarn run build
-```
-
-After you build the extension, follow these steps:
-1. Open Firefox
-2. Go to about:debugging
-3. Click on "This Firefox" on the left
-4. Click on "Load Temporary Add-on..."
-5. Select any file from the `dist/` folder of the extension
-
-## Feedback and ideas
-
-If you are experiencing any issue, you can report it in the [Issues](https://github.com/diegogurpegui/nos2x-fox/issues) secion.
-
-If you have any feature suggestion or idea for this extension, feel free to leave it in the [Discussions](https://github.com/diegogurpegui/nos2x-fox/discussions/categories/ideas).  
-Also, if you like any of the already proposed ideas, upvote them!
-
----
-
-## License and Credits
-
-LICENSE: public domain.
-Original work by [fiatjaf](https://github.com/fiatjaf).
-
-Design taken from [Flydexo](https://github.com/Flydexo). See https://github.com/fiatjaf/nos2x/pull/15
-
-Icons from [IonIcons](https://ionic.io/ionicons).
+The Unlicense, as inherited. See `LICENSE`.
