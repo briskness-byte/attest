@@ -202,6 +202,69 @@ function Options() {
     loadAndSelectProfile(selectedProfilePubKey);
   }
 
+  // The private key field accepts hex or nsec, so anything reading it has to normalise the same
+  // way savePrivateKey does rather than assume one of the two.
+  function privateKeyBytes(): Uint8Array | null {
+    if (!privateKey || !isKeyValid()) return null;
+    if (isHexadecimal(privateKey)) return convertHexToUint8Array(privateKey);
+    try {
+      const { type, data } = nip19.decode(privateKey);
+      return type === 'nsec' ? (data as Uint8Array) : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // The public key is the identity: it is what you paste into a client, what you hand to somebody
+  // who wants to find you, and what you check when you are not sure which profile is selected.
+  // Until now this page showed the private key in a field and never showed the public one at all,
+  // which is the wrong way round. A saved profile knows its own; an unsaved one is derived from
+  // whatever is in the key field, so the npub appears as soon as there is a key to derive it from.
+  function selectedNpub(): string {
+    let hex = selectedProfilePubKey;
+    if (!hex) {
+      const bytes = privateKeyBytes();
+      if (bytes) hex = derivePublicKeyFromPrivateKey(convertUint8ArrayToHex(bytes));
+    }
+    try {
+      return hex ? nip19.npubEncode(hex) : '';
+    } catch (e) {
+      return '';
+    }
+  }
+
+  async function copyNpub() {
+    try {
+      await navigator.clipboard.writeText(selectedNpub());
+    } catch (e) {
+      console.error('Could not copy the public key.', e);
+    }
+  }
+
+  // The confirmation is not there to slow anybody down — it is there because the risk is not the
+  // click, it is where the key goes afterwards. A clipboard manager keeps a history, on disk, and a
+  // private key that lands in it stays there long after the paste it was meant for.
+  //
+  // Deliberately not cleared on a timer: checking whether the clipboard still holds the key needs
+  // the clipboardRead permission, and adding a permission to a signer in order to implement a
+  // mitigation a clipboard manager has already outrun is a bad trade. Say what happens instead.
+  async function copyNsec() {
+    const bytes = privateKeyBytes();
+    if (!bytes) return;
+    const ok = window.confirm(
+      'Copy the private key to the clipboard?\n\n' +
+        'Anything that can read your clipboard can read it, and a clipboard manager will keep a ' +
+        'copy in its history — on disk, often for a long time.\n\n' +
+        'Paste it where you need it, then copy something else. To store it, use Export instead.'
+    );
+    if (!ok) return;
+    try {
+      await navigator.clipboard.writeText(nip19.nsecEncode(bytes));
+    } catch (e) {
+      console.error('Could not copy the private key.', e);
+    }
+  }
+
   function handleSelectedProfileChange(event) {
     const pubKey = event.target.value;
     setSelectedProfilePubKey(pubKey);
@@ -725,6 +788,15 @@ function Options() {
               </button>
             </div>
           </div>
+          <div className="form-field">
+            <label htmlFor="public-key">Public key:</label>
+            <div className="input-group">
+              <input id="public-key" type="text" readOnly value={selectedNpub()} placeholder="no key yet" />
+              <button onClick={copyNpub} disabled={!selectedNpub()} title="Copy the public key to the clipboard">
+                <CopyIcon /> Copy
+              </button>
+            </div>
+          </div>
           <div className="profile-actions">
             <button disabled={isNewProfilePending()} onClick={handleNewProfileClick}>
               <AddCircleIcon />
@@ -759,6 +831,9 @@ function Options() {
               />
               <button onClick={handlePrivateKeyShowClick}>
                 {isKeyHidden ? <EyeIcon /> : <EyeOffIcon />}
+              </button>
+              <button onClick={copyNsec} disabled={!isKeyValid()} title="Copy the private key to the clipboard">
+                <CopyIcon />
               </button>
               <button disabled={selectedProfilePubKey != ''} onClick={generateRandomPrivateKey}>
                 <DiceIcon /> Generate
