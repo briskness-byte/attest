@@ -4,7 +4,11 @@ import { buildNostrLinkUrl } from './common';
 import * as Storage from './storage';
 import { ConfigurationKeys } from './types';
 
-const EXTENSION_CODE = 'nos2x-fox';
+// Two extensions listening for the same key on the same page both answer, and the provider takes
+// whichever reply arrives first — so a signature could come back from the other one. nos2x-fox and
+// this can be installed side by side, which is exactly the case that breaks. Must match the value
+// in the other file.
+const EXTENSION_CODE = 'attest';
 
 // The only message types a web page is ever allowed to ask for. Everything else the background can
 // do — the PIN handlers, key encryption, opening a prompt window — belongs to the extension's own

@@ -157,7 +157,7 @@ async function updateToolbarState() {
     await browser.browserAction.setBadgeText({ text: enabled ? '' : 'OFF' });
     await browser.browserAction.setBadgeBackgroundColor({ color: '#b91c1c' });
     await browser.browserAction.setTitle({
-      title: enabled ? 'nos2x-fox' : 'nos2x-fox (disabled)'
+      title: enabled ? 'Attest' : 'Attest (disabled)'
     });
   } catch (error) {
     console.debug('Could not update the toolbar state.', error);
@@ -237,7 +237,7 @@ async function handleContentScriptMessage({
 }: ContentMessageArgs): Promise<ContentScriptMessageResponse> {
   if (!(await Storage.isSignerEnabled())) {
     // the signer is switched off for every site, so don't even prompt
-    return { error: { message: 'nos2x-fox is disabled' } };
+    return { error: { message: 'Attest is disabled' } };
   }
 
   const requiredLevel = PERMISSIONS_REQUIRED[type];

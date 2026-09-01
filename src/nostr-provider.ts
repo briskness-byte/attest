@@ -5,7 +5,11 @@ import {
   RelaysConfig
 } from './types';
 
-const EXTENSION_CODE = 'nos2x-fox';
+// Two extensions listening for the same key on the same page both answer, and the provider takes
+// whichever reply arrives first — so a signature could come back from the other one. nos2x-fox and
+// this can be installed side by side, which is exactly the case that breaks. Must match the value
+// in the other file.
+const EXTENSION_CODE = 'attest';
 
 window.nostr = {
   _requests: {},
@@ -66,7 +70,7 @@ window.nostr = {
     // The script that called knows them already — but every other script on the page can read
     // them here by wrapping console.log, and people paste consoles into bug reports.
     console.log(
-      '%c[nos2x-fox:%c' + id + '%c]%c calling %c' + type,
+      '%c[attest:%c' + id + '%c]%c calling %c' + type,
       'background-color:#f1b912;font-weight:bold;color:white',
       'background-color:#f1b912;font-weight:bold;color:#a92727',
       'background-color:#f1b912;color:white;font-weight:bold',
@@ -112,7 +116,7 @@ window.addEventListener('message', message => {
   // Same reason: a decrypted direct message is a result, and it does not belong in a log the
   // page can read. Whether it succeeded is enough to debug against.
   console.log(
-    '%c[nos2x-fox:%c' + message.data.id + '%c]%c ' +
+    '%c[attest:%c' + message.data.id + '%c]%c ' +
       (message.data.response.error ? 'failed' : 'ok'),
     'background-color:#f1b912;font-weight:bold;color:white',
     'background-color:#f1b912;font-weight:bold;color:#a92727',
