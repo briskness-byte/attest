@@ -137,6 +137,25 @@ function Popup() {
     setBackupPending(false);
   }
 
+  // A popup closes the moment you click outside it, and everything typed into it goes with it.
+  // Nobody expects that of a text field, and there is no warning — you look back later and the
+  // profile is called npub1… again.
+  //
+  // Debounced rather than saved on every keystroke: a name is worth one write when you stop
+  // typing, not one per letter, and half-typed labels have no business in storage. The name is a
+  // local label for switching keys — the background never reads it, and nothing signs or publishes
+  // it — so a value that lags the field by half a second costs nothing.
+  //
+  // The Save button needs no change to become the confirmation: it already disables itself when
+  // what is in the field matches what is stored, so it greys out the moment this lands.
+  useEffect(() => {
+    const name = profileName.trim();
+    if (!name || !publicKeyHexa) return;
+    if (profiles[publicKeyHexa]?.name === name) return;
+    const t = setTimeout(() => { handleProfileNameSave(); }, 500);
+    return () => clearTimeout(t);
+  }, [profileName, publicKeyHexa]);
+
   async function handleProfileNameSave() {
     const name = profileName.trim();
     if (!name || !publicKeyHexa) return;
