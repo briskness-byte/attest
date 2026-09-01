@@ -5,4 +5,4 @@ dist/
 *.zip
 
 # Var and temp files
-var/
+var/var/pages/
