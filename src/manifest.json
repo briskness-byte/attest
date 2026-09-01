@@ -11,10 +11,11 @@
           "none"
         ],
         "optional": []
-      }
+      },
+      "strict_min_version": "128.0"
     },
     "gecko_android": {
-      "strict_min_version": "120.0"
+      "strict_min_version": "128.0"
     }
   },
   "manifest_version": 2,
@@ -40,12 +41,22 @@
   },
   "content_scripts": [
     {
-      "run_at": "document_end",
+      "run_at": "document_start",
       "matches": [
         "<all_urls>"
       ],
       "js": [
         "content-script.js"
+      ]
+    },
+    {
+      "run_at": "document_start",
+      "matches": [
+        "<all_urls>"
+      ],
+      "world": "MAIN",
+      "js": [
+        "nostr-provider.js"
       ]
     }
   ],
@@ -58,9 +69,6 @@
   ],
   "permissions": [
     "storage"
-  ],
-  "web_accessible_resources": [
-    "nostr-provider.js"
   ],
   "content_security_policy": "script-src 'self'; object-src 'self';"
 }

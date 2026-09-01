@@ -94,12 +94,19 @@ browser.storage.onChanged.addListener((changes, area) => {
 
 //#endregion Nostr link handler
 
-// inject the script that will provide window.nostr
-const script = document.createElement('script');
-script.setAttribute('async', 'false');
-script.setAttribute('type', 'text/javascript');
-script.setAttribute('src', browser.runtime.getURL('nostr-provider.js'));
-document.head.appendChild(script);
+// nostr-provider.js is no longer injected from here. It is declared in the manifest as a content
+// script with world: "MAIN" at document_start, which changes two things.
+//
+// It arrives on time. Appending a <script src> meant the browser had to fetch the file before it
+// ran, so window.nostr turned up at some unpredictable moment after DOMContentLoaded and a page
+// that looked for a signer on load sometimes found none.
+//
+// And it stops handing every page a stable identifier. That src was
+// moz-extension://<UUID>/nostr-provider.js, the tag stayed in the document, and any script could
+// read it. The UUID is random per profile but identical on every site and survives clearing
+// cookies — a cross-site identifier, from a signer, on every page visited.
+//
+// Adapted from daym's nos2x-fox#67. Costs Firefox 128, where `world` landed.
 
 // listen for messages from that script
 window.addEventListener('message', async message => {
