@@ -3,6 +3,7 @@ node_modules
 # Build files
 dist/
 *.zip
+*.xpi
 
 # Working files: built packages, the test browser profile, draft PR texts. None of it belongs in
 # the source, and a stray `git add -A` once put a whole Firefox profile in a commit — cookies,
