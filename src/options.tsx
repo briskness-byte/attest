@@ -819,6 +819,16 @@ function Options() {
 
         <section>
           <h3>Keys</h3>
+          {/* The field is read-only while a saved profile is selected, and that is right: replacing
+              a stored key is not an edit, it is a different identity, and doing it in place is how
+              somebody loses the only copy of one. But a greyed-out box that says nothing is a dead
+              end — you click it, nothing happens, and there is no way to guess that the way in is a
+              button in another section. */}
+          <p className="text-help">
+            {selectedProfilePubKey
+              ? 'This profile\u2019s key cannot be changed here. To add another identity — pasting an nsec you already have, or generating a new one — click New under Profile.'
+              : 'Paste an nsec or a hex private key, or press Generate for a new one. Check the public key above before saving.'}
+          </p>
           <div className="form-field">
             <label htmlFor="private-key">Private key:</label>
             <div className="input-group">
@@ -827,6 +837,11 @@ function Options() {
                 type={isKeyHidden ? 'password' : 'text'}
                 value={privateKey}
                 readOnly={selectedProfilePubKey != ''}
+                title={
+                  selectedProfilePubKey
+                    ? 'Saved keys cannot be edited. Click New under Profile to add another.'
+                    : 'Paste an nsec or a hex private key'
+                }
                 onChange={handlePrivateKeyChange}
               />
               <button onClick={handlePrivateKeyShowClick}>
