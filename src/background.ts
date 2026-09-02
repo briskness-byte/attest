@@ -51,12 +51,26 @@ const EXTENSION_PAGES_ONLY = new Set([
   'getCachedPin'
 ]);
 
+/**
+ * Did this come from one of our own pages, rather than from a content script in a web page?
+ *
+ * NOT `sender.tab`. The options page is opened with tabs.create(), so it has a tab like any web
+ * page does — checking for one blocked the extension from talking to itself, and PIN protection
+ * silently stopped working with nothing on screen to say why.
+ *
+ * `sender.url` is the discriminator that actually holds. For a content script it is the address of
+ * the page it was injected into, never a moz-extension:// one; content scripts do not run on
+ * extension pages, and a web page cannot reach this listener at all.
+ */
+function fromOwnPage(sender: browser.Runtime.MessageSender): boolean {
+  const base = browser.runtime.getURL('');
+  return typeof sender?.url === 'string' && sender.url.startsWith(base);
+}
+
 browser.runtime.onMessage.addListener(async (message, sender) => {
-  // A content script runs in a tab; the options page, the popup and the prompts do not. Anything
-  // touching the PIN or the key itself is for those, and the content script's allow-list is not
-  // the only thing that should be saying so — this is the half that survives someone adding a
-  // second bridge later and forgetting.
-  if (sender?.tab && EXTENSION_PAGES_ONLY.has(message?.type)) {
+  // The content script's allow-list is not the only thing that should be refusing these — this is
+  // the half that survives somebody adding a second bridge later and forgetting.
+  if (!fromOwnPage(sender) && EXTENSION_PAGES_ONLY.has(message?.type)) {
     return { success: false, error: 'not available to pages' };
   }
 
