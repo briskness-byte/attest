@@ -75,10 +75,14 @@ export async function setCachedPin(pin: string): Promise<void> {
 
     // Ensure cache duration is a valid positive number
     if (cacheDurationMs && cacheDurationMs > 0 && Number.isFinite(cacheDurationMs)) {
-      // Schedule proactive expiration
+      // setTimeout takes a 32-bit signed delay. Anything past 2^31-1 milliseconds — about 24.8
+      // days — overflows and fires straight away, so a longer setting would clear the PIN
+      // instantly and read as the setting not working at all. Clamp instead: the background page
+      // does not outlive the browser, so a timer that long never gets to run anyway.
+      const MAX_TIMEOUT_MS = 2147483647;
       expirationTimer = setTimeout(() => {
         clearCachedPin();
-      }, cacheDurationMs);
+      }, Math.min(cacheDurationMs, MAX_TIMEOUT_MS));
     }
     // If cache duration is invalid, don't set timer (fail secure)
     // Lazy expiration in getCachedPin() will handle clearing

@@ -864,7 +864,9 @@ function Options() {
             When enabled, ALL your private keys are encrypted. You will need to enter your PIN each
             time you use the extension.
             <br />
-            The PIN is cached for the duration you select below.
+            The PIN is cached for the duration you select below, and never survives closing
+            Firefox — it is held in memory and nowhere else. Your keys stay encrypted on disk
+            either way; this only decides how often you are asked while you are working.
           </p>
           <div className="form-field mt-2">
             <div className="input-group">
@@ -880,6 +882,15 @@ function Options() {
                 <option value={30 * 1000}>30 seconds</option>
                 <option value={5 * 60 * 1000}>5 minutes</option>
                 <option value={10 * 60 * 1000}>10 minutes</option>
+                <option value={30 * 60 * 1000}>30 minutes</option>
+                <option value={60 * 60 * 1000}>1 hour</option>
+                <option value={4 * 60 * 60 * 1000}>4 hours</option>
+                <option value={8 * 60 * 60 * 1000}>8 hours</option>
+                {/* The honest ceiling. The PIN lives in a variable in the background page and
+                    nowhere else, so it cannot survive the browser closing however long a number is
+                    put here — offering days or months would promise something the code cannot do.
+                    2^31-1 ms is also the largest delay setTimeout accepts. */}
+                <option value={2147483647}>until Firefox closes</option>
               </select>
             </div>
           </div>
