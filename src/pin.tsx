@@ -5,6 +5,10 @@ import { encryptPrivateKey } from './pinEncryption';
 import * as Storage from './storage';
 import { PinMessageResponse } from './types';
 
+import { applyTheme } from './theme';
+
+applyTheme();
+
 type PinMode = 'setup' | 'unlock' | 'disable';
 
 function PinPrompt() {

@@ -29,6 +29,10 @@ import CheckmarkCircleIcon from './assets/icons/checkmark-circle-outline.svg';
 import CloseCircleIcon from './assets/icons/close-circle-outline.svg';
 import { useOpenPrompts } from './PromptManager';
 
+import { applyTheme } from './theme';
+
+applyTheme();
+
 function Prompt() {
   const openPrompts = useOpenPrompts();
 

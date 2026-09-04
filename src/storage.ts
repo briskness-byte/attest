@@ -83,6 +83,23 @@ export async function setPinEnabled(enabled: boolean): Promise<void> {
  * Gets the PIN cache duration in milliseconds
  * Default: 10 seconds (10000 ms)
  */
+/**
+ * Which theme to draw: follow the operating system, or override it.
+ *
+ * 'system' is the default because the browser already knows the answer and the user already told
+ * it once. An explicit choice exists because that answer is sometimes wrong — a dark desktop with
+ * one light window in it, or the other way round.
+ */
+export async function getTheme(): Promise<'system' | 'light' | 'dark'> {
+  const data = await browser.storage.local.get(ConfigurationKeys.THEME);
+  const v = data[ConfigurationKeys.THEME];
+  return v === 'light' || v === 'dark' ? v : 'system';
+}
+
+export async function setTheme(theme: 'system' | 'light' | 'dark'): Promise<void> {
+  await browser.storage.local.set({ [ConfigurationKeys.THEME]: theme });
+}
+
 export async function getPinCacheDuration(): Promise<number> {
   const data = await browser.storage.local.get(ConfigurationKeys.PIN_CACHE_DURATION);
   return (data[ConfigurationKeys.PIN_CACHE_DURATION] as number) ?? 10 * 1000; // Default: 10 seconds

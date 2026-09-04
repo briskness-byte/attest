@@ -1,23 +1,83 @@
+// ****** Colours ******
+//
+// These are custom properties rather than plain Sass variables because the theme has to be
+// switchable while the extension is running. Sass resolves at build time; a popup that is open for
+// two seconds cannot reload a stylesheet.
+//
+// The Sass names below still exist and still work — they point at the properties — so every rule
+// further down is untouched and there is one place to change a colour.
+:root {
+  --color-primary: #0c1c25;
+  --color-primary-inv: #ffffff;
+  --color-primary-light: #0b2d40;
+  --color-primary-disabled: #394a53;
+  --color-text: #0c1c25;
+  --color-text-inv: #ffffff;
+  --color-text-muted: #606060;
+  --color-info: #aebef5;
+  --color-info-dark: #7381ad;
+  --color-warning: #f08046;
+  --color-warning-dark: #5f321b;
+  --color-warning-light: #eebca3;
+  --color-danger: #b8480e;
+  --color-danger-dark: #501f06;
+  --color-danger-light: #bb6b42;
+  --color-success: #2aa854;
+  --color-success-dark: #1c5e32;
+  --color-success-light: #46f07f;
+  --background-color: #ffffff;
+}
+
+// One block, reached two ways: by the system setting, and by an explicit choice. Anything that is
+// only in one of them is a bug waiting for somebody who set the other.
+@mixin dark-palette {
+  --color-primary: #7dd3fc;
+  --color-primary-inv: #0b1116;
+  --color-primary-light: #38bdf8;
+  --color-primary-disabled: #3f5460;
+  --color-text: #e6edf3;
+  --color-text-inv: #0b1116;
+  --color-text-muted: #9aa7b2;
+  --color-info: #6f83c9;
+  --color-info-dark: #aebef5;
+  --color-warning: #f0a56f;
+  --color-warning-dark: #f8c9a8;
+  --color-warning-light: #4a2a14;
+  --color-danger: #f0855a;
+  --color-danger-dark: #f6b39a;
+  --color-danger-light: #4a1f0c;
+  --color-success: #5fd08a;
+  --color-success-dark: #9ae6b8;
+  --color-success-light: #17331f;
+  --background-color: #14181c;
+}
+
+// Following the system is the default, so it must not apply once a choice has been made.
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) { @include dark-palette; }
+}
+:root[data-theme='dark'] { @include dark-palette; }
+
 // ****** Variables *****
-$color-primary: #0c1c25;
-$color-primary-inv: #ffffff;
-$color-primary-light: #0b2d40;
-$color-primary-disabled: #394a53;
-$color-text: #0c1c25;
-$color-text-inv: #ffffff;
-$color-text-muted: #606060;
-$color-info: #aebef5;
-$color-info-dark: #7381ad;
-$color-warning: #f08046;
-$color-warning-dark: #5f321b;
-$color-warning-light: #eebca3;
-$color-danger: #b8480e;
-$color-danger-dark: #501f06;
-$color-danger-light: #bb6b42;
-$color-success: #2aa854;
-$color-success-dark: #1c5e32;
-$color-success-light: #46f07f;
-$background-color: #ffffff;
+$color-primary: var(--color-primary);
+$color-primary-inv: var(--color-primary-inv);
+$color-primary-light: var(--color-primary-light);
+$color-primary-disabled: var(--color-primary-disabled);
+$color-text: var(--color-text);
+$color-text-inv: var(--color-text-inv);
+$color-text-muted: var(--color-text-muted);
+$color-info: var(--color-info);
+$color-info-dark: var(--color-info-dark);
+$color-warning: var(--color-warning);
+$color-warning-dark: var(--color-warning-dark);
+$color-warning-light: var(--color-warning-light);
+$color-danger: var(--color-danger);
+$color-danger-dark: var(--color-danger-dark);
+$color-danger-light: var(--color-danger-light);
+$color-success: var(--color-success);
+$color-success-dark: var(--color-success-dark);
+$color-success-light: var(--color-success-light);
+$background-color: var(--background-color);
 
 $radius-default: 0.3em;
 $button-radius: $radius-default;
@@ -55,6 +115,9 @@ body {
   font-family: $font-family;
   font-size: $font-size;
   color: $color-text;
+  // Was never set. Fine while the only palette was a light one; in a dark theme it left light text
+  // on the browser's white default, which is the state where you can read nothing at all.
+  background-color: $background-color;
 }
 
 h2 {

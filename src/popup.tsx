@@ -14,6 +14,10 @@ import AddCircleIcon from './assets/icons/add-circle-outline.svg';
 import DownloadIcon from './assets/icons/download-outline.svg';
 import CheckmarkCircleIcon from './assets/icons/checkmark-circle-outline.svg';
 
+import { applyTheme } from './theme';
+
+applyTheme();
+
 function Popup() {
   let [publicKeyHexa, setPublicKeyHexa] = useState<string>();
   let [publiKeyNIP19, setPublicKeyNIP19] = useState<string>();

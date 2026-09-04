@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100">
-  <!-- The mark alone, for placing on a surface that already has a colour. -->
-  <path d="M25 53 L42 70 L77 27" fill="none" stroke="#ffffff"
-        stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- The letter alone, light, for placing on a surface that already has a colour. -->
+  <path d="M26 77 L50 23 L74 77 M36 58 L64 58" fill="none" stroke="#ffffff"
+        stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>

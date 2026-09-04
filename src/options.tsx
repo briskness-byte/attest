@@ -45,6 +45,10 @@ import RadioIcon from './assets/icons/radio-outline.svg';
 import TrashIcon from './assets/icons/trash-outline.svg';
 import WarningIcon from './assets/icons/warning-outline.svg';
 
+import { applyTheme } from './theme';
+
+applyTheme();
+
 type RelayConfig = {
   url: string;
   policy: { read: boolean; write: boolean };
@@ -82,6 +86,7 @@ function Options() {
   let [version, setVersion] = useState('0.0.0');
   let [pinEnabled, setPinEnabled] = useState(false);
   let [pinCacheDuration, setPinCacheDuration] = useState<number>(10 * 1000); // Default: 10 seconds
+  let [theme, setTheme] = useState<'system' | 'light' | 'dark'>('system');
   let [nostrLinkHandlerUrl, setNostrLinkHandlerUrl] = useState('');
   let [isNostrLinkHandlerUrlValid, setNostrLinkHandlerUrlValid] = useState(true);
 
@@ -122,6 +127,7 @@ function Options() {
     });
 
     // Load PIN cache duration
+    Storage.getTheme().then(setTheme);
     Storage.getPinCacheDuration().then(duration => {
       setPinCacheDuration(duration);
     });
@@ -576,6 +582,13 @@ function Options() {
     setKeyHidden(!isKeyHidden);
   }
 
+  // theme state lives with the other settings
+  async function handleThemeChange(e) {
+    const t = e.target.value;
+    setTheme(t);
+    await Storage.setTheme(t);
+  }
+
   async function handleProtectWithPinClick() {
     const mode = pinEnabled ? 'disable' : 'setup';
     try {
@@ -899,6 +912,22 @@ function Options() {
               PIN protection is enabled. Your private keys are encrypted.
             </p>
           )}
+        </section>
+
+        <section>
+          <h3>Appearance</h3>
+          <p className="text-help">
+            Following the system is the default and is usually right. The override is here because
+            it is sometimes not — a dark desktop with one light window in it, or the reverse.
+          </p>
+          <div className="form-field">
+            <label htmlFor="theme">Theme:</label>
+            <select id="theme" value={theme} onChange={handleThemeChange}>
+              <option value="system">Follow the system</option>
+              <option value="light">Light</option>
+              <option value="dark">Dark</option>
+            </select>
+          </div>
         </section>
 
         <section>
