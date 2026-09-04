@@ -1,7 +1,7 @@
 {
   "name": "attest",
   "description": "A Nostr signer for Firefox that asks first. Sign events without handing your key to a website.",
-  "version": "1.21.0",
+  "version": "1.22.0",
   "license": "SEE LICENSE IN LICENSE",
   "repository": {
     "url": "https://github.com/briskness-byte/attest",
