@@ -1,7 +1,7 @@
 {
   "name": "attest",
   "description": "A Nostr signer for Firefox that asks first. Sign events without handing your key to a website.",
-  "version": "1.20.7",
+  "version": "1.20.8",
   "license": "SEE LICENSE IN LICENSE",
   "repository": {
     "url": "https://github.com/briskness-byte/attest",
@@ -14,7 +14,8 @@
     "package:src": "cd src; zip -r nos2x-fox_${npm_package_version}_src.zip *; cd ..; mv src/nos2x-fox_${npm_package_version}_src.zip ./var/releases/",
     "package": "yarn run build; cd dist; zip -r archive *; cd ..; mv dist/archive.zip ./var/releases/nos2x-fox_${npm_package_version}.xpi",
     "package:hosted": "yarn run build:hosted; cd dist; zip -r archive *; cd ..; mv dist/archive.zip ./var/releases/nos2x-fox_${npm_package_version}.hosted_unsigned.xpi",
-    "start:firefox": "web-ext run --source-dir ./dist/ --firefox-profile ./var/firefox-profile --keep-profile-changes --profile-create-if-missing"
+    "start:firefox": "web-ext run --source-dir ./dist/ --firefox-profile ./var/firefox-profile --keep-profile-changes --profile-create-if-missing",
+    "test": "node tests/security-boundary.mjs"
   },
   "dependencies": {
     "date-fns": "4.1.0",

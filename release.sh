@@ -35,6 +35,14 @@ for f in ('src/manifest.json', 'package.json'):
     p.write_text(json.dumps(d, indent=2) + '\n')
 PY
 
+# The boundary between a web page and the background has been wrong twice, in opposite
+# directions, and neither failure showed a symptom. Nothing ships without checking it.
+if [ "${SKIP_TESTS:-0}" != "1" ]; then
+    echo "running tests"
+    node tests/security-boundary.mjs || { echo "! tests failed — not building"; exit 1; }
+    echo
+fi
+
 echo "building $NEW"
 yarn run build >/dev/null 2>&1 || { echo "! build failed"; exit 1; }
 
