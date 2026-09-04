@@ -63,13 +63,23 @@ print(f"  update_url {g.get('update_url','MISSING')}")
 PY
 
 ls -1sh var/releases/
+
+# Commit and tag here rather than leaving it to be remembered. The bump was forgotten three times
+# in a day, and each time the next run refused to build until it was found — but worse, a tag is
+# the only thing that lets somebody reading the listing work out which commit produced the build
+# they installed. "Compare what you install with the source" needs a source to point at.
+git add package.json src/manifest.json
+git commit -q -m "Version $NEW"
+git tag -a "v$NEW" -m "Version $NEW"
+echo "committed and tagged v$NEW"
+
 cat <<TXT
 
 next:
-  1. upload var/releases/attest-$NEW.xpi at addons.mozilla.org  (On your own / unlisted)
+  1. upload var/releases/attest-$NEW.xpi at addons.mozilla.org
      the -src.zip goes with it when AMO asks for sources
   2. download the SIGNED file it gives back and install that, not the one you uploaded
-  3. git commit -am "Version $NEW"
+  3. git push --follow-tags
 
 when the disclosure window closes, point the update manifest at the signed file:
   sh make-update-manifest.sh ~/Downloads/attest-$NEW-signed.xpi
