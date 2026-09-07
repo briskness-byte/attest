@@ -35,6 +35,12 @@ const openPromptMap: Record<
   { id: string; windowId?: number; resolve: Function; reject: Function }
 > = {};
 
+/**
+ * Windows that have been asked for but do not exist yet, per kind of prompt. Without this a
+ * request cannot see a window that is still opening, and opens a second one.
+ */
+const windowsOpening = new Map<string, Promise<browser.Windows.Window | browser.Tabs.Tab>>();
+
 /** Map to keep track of PIN prompts */
 const pinPromptMap: Record<
   string,
@@ -432,55 +438,98 @@ async function handlePromptMessage(
   }
 }
 
+/**
+ * A window to hang a prompt on: the one already open if it still exists, a new one otherwise.
+ *
+ * Reusing the open window is what queues a second request behind the first instead of stacking
+ * popups, and that part was right. What was missing is that the id can be stale. A window the user
+ * closed leaves its entry in the map until windows.onRemoved has run, and a request arriving in
+ * that gap asked windows.get() about a window that no longer existed. The rejection had no handler,
+ * so the promise it fed never settled: no popup, no error, nothing in any log, and the caller
+ * waiting forever for an answer that was never coming.
+ *
+ * That is not a hypothetical. It is why a zap could leave the wallet with no signature on it: the
+ * page asked for one, the second prompt never appeared, and the client fell back to paying a plain
+ * invoice. A refusal you cannot see is worse than a refusal.
+ */
+async function promptWindow(
+  slot: string,
+  existingWindowId: number | undefined,
+  open: () => Promise<browser.Windows.Window | browser.Tabs.Tab>
+): Promise<browser.Windows.Window | browser.Tabs.Tab> {
+  const live = async (id: number) =>
+    browser.windows ? await browser.windows.get(id) : await browser.tabs.get(id);
+
+  if (existingWindowId != null) {
+    try {
+      return await live(existingWindowId);
+    } catch {
+      // Gone, and the map has not caught up yet. Opening a new one is the whole point of asking.
+      console.debug(`Prompt window ${existingWindowId} no longer exists. Opening a new one.`);
+    }
+  }
+
+  // A window that has been asked for but does not exist yet is invisible to the map, because an
+  // entry only gets its id once the window is open. Two requests in the same tick therefore both
+  // used to open one — the popup nobody asked for twice. They wait for the same window instead.
+  const opening = windowsOpening.get(slot);
+  if (opening) {
+    try {
+      return await live((await opening).id as number);
+    } catch {
+      // It opened and was closed again while we waited, or it never opened at all.
+    }
+  }
+
+  const own = open();
+  windowsOpening.set(slot, own);
+  try {
+    return await own;
+  } finally {
+    if (windowsOpening.get(slot) === own) windowsOpening.delete(slot);
+  }
+}
+
 function promptPermission(host: string, level: number, params: PromptParams): Promise<boolean> {
-  let id = Math.random().toString().slice(4);
+  const id = Math.random().toString().slice(4);
+  const promptPageURL = `${browser.runtime.getURL('prompt.html')}`;
 
   return new Promise((resolve, reject) => {
-    const promptPageURL = `${browser.runtime.getURL('prompt.html')}`;
+    // Registered before there is a window, on purpose: two requests arriving in the same tick both
+    // used to find an empty map and both open a popup of their own. The second one now sees this.
+    openPromptMap[id] = { id, resolve, reject };
 
-    let openPromptPromise: Promise<browser.Windows.Window | browser.Tabs.Tab>;
+    const inFlight = Object.values(openPromptMap).find(({ windowId }) => windowId != null);
+    if (inFlight) console.debug('There is already a prompt popup window open.');
 
-    // check if there is already a prompt popup window open
-    if (Object.values(openPromptMap).length > 0) {
-      console.debug('There is already a prompt popup window open.');
-      // simulate the promise using the existing window id
-      openPromptPromise = new Promise((resolve, reject) => {
-        const openPrompt = Object.values(openPromptMap).find(({ windowId }) => windowId);
-        if (openPrompt) {
-          const getPopup = browser.windows
-            ? browser.windows.get(openPrompt.windowId as number)
-            : browser.tabs.get(openPrompt.windowId as number);
-          getPopup.then(win => resolve(win));
-        } else {
-          reject();
-        }
-      });
-    } else {
-      console.debug('There is no prompt popup window open. Creating one.');
-      // open the popup window
-      if (browser.windows) {
-        openPromptPromise = browser.windows.create({
-          url: promptPageURL,
-          type: 'popup',
-          width: 600,
-          height: 520
-        });
-      } else {
-        // Android Firefox
-        openPromptPromise = browser.tabs.create({
-          url: promptPageURL,
-          active: true
-        });
+    promptWindow('permission', inFlight?.windowId, () =>
+      browser.windows
+        ? browser.windows.create({
+            url: promptPageURL,
+            type: 'popup',
+            width: 600,
+            // 520, not the 400 upstream uses: this branch's prompt shows more.
+            height: 520
+          })
+        : // Android Firefox
+          browser.tabs.create({
+            url: promptPageURL,
+            active: true
+          })
+    ).then(
+      win => {
+        const entry = openPromptMap[id];
+        // Answered or cleaned up while the window was still opening.
+        if (!entry) return;
+        entry.windowId = win.id;
+        PromptManager.add({ id, windowId: win.id, host, level, params });
+      },
+      error => {
+        // Nothing can be shown, so this has to fail where the caller can see it rather than hang.
+        delete openPromptMap[id];
+        reject(error instanceof Error ? error : new Error('could not open a prompt window'));
       }
-    }
-
-    // when the prompt is opened (or found open), add it to the queue
-    openPromptPromise.then(win => {
-      // add the prompt to the local map
-      openPromptMap[id] = { id, windowId: win.id, resolve, reject };
-      // add to the storage
-      PromptManager.add({ id, windowId: win.id, host, level, params });
-    });
+    );
   });
 }
 
@@ -536,38 +585,33 @@ async function getDecryptedPrivateKey(): Promise<string | null> {
  * @returns The entered PIN, or null if cancelled/error
  */
 function promptPin(mode: 'setup' | 'unlock' | 'disable'): Promise<string | null> {
-  let id = Math.random().toString().slice(4);
+  const id = Math.random().toString().slice(4);
 
   return new Promise((resolve, reject) => {
-    let openPinPromise: Promise<browser.Windows.Window | browser.Tabs.Tab>;
+    // Same reasoning as promptPermission: registered first, so a second request in the same tick
+    // finds it instead of opening a second window.
+    pinPromptMap[id] = { id, resolve, reject, mode };
 
-    // Check if there is already a PIN prompt window open
-    const existingPinPrompt = Object.values(pinPromptMap).find(p => p.mode === mode);
-    if (existingPinPrompt) {
-      console.debug('There is already a PIN prompt window open.');
-      openPinPromise = new Promise((resolve, reject) => {
-        if (existingPinPrompt.windowId) {
-          const getPopup = browser.windows
-            ? browser.windows.get(existingPinPrompt.windowId as number)
-            : browser.tabs.get(existingPinPrompt.windowId as number);
-          getPopup.then(win => resolve(win));
-        } else {
-          reject();
-        }
-      });
-    } else {
-      console.debug('Opening PIN prompt window.');
-      // Use common openPopupWindow function
-      const pinPageURL = `pin.html?mode=${mode}&id=${id}`;
-      openPinPromise = openPopupWindow(pinPageURL, { width: 400, height: 300 });
-    }
+    const inFlight = Object.values(pinPromptMap).find(
+      p => p.id !== id && p.mode === mode && p.windowId != null
+    );
+    if (inFlight) console.debug('There is already a PIN prompt window open.');
+    else console.debug('Opening PIN prompt window.');
 
-    // when the prompt is opened (or found open), add it to the map
-    openPinPromise
-      .then(win => {
-        pinPromptMap[id] = { id, windowId: win.id, resolve, reject, mode };
-      })
-      .catch(reject);
+    promptWindow(`pin:${mode}`, inFlight?.windowId, () =>
+      openPopupWindow(`pin.html?mode=${mode}&id=${id}`, { width: 400, height: 300 })
+    ).then(
+      win => {
+        const entry = pinPromptMap[id];
+        // Answered or cleaned up while the window was still opening.
+        if (!entry) return;
+        entry.windowId = win.id;
+      },
+      error => {
+        delete pinPromptMap[id];
+        reject(error instanceof Error ? error : new Error('could not open a PIN prompt window'));
+      }
+    );
   });
 }
 

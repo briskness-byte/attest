@@ -39,6 +39,7 @@ PY
 # directions, and neither failure showed a symptom. Nothing ships without checking it.
 if [ "${SKIP_TESTS:-0}" != "1" ]; then
     echo "running tests"
+    node tests/prompt-window.mjs || { echo "! tests failed — not building"; exit 1; }
     node tests/security-boundary.mjs || { echo "! tests failed — not building"; exit 1; }
     echo
 fi
