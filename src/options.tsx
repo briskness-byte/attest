@@ -558,11 +558,13 @@ function Options() {
       setSelectedProfilePubKey(newPubKey); // this re-loads the profile in the screen
 
       await saveProfiles();
+      showMessage('Saved private key!', 'success');
     } else {
-      console.warn('Saving and empty private key');
+      // Reached when the text passed the format check but would not decode. Saying "Saved" here
+      // told people their key was stored when nothing had been written at all.
+      console.warn('Could not read that private key; nothing was saved.');
+      showMessage('That key could not be read, so nothing was saved.', 'warning');
     }
-
-    showMessage('Saved private key!', 'success');
   }
 
   function isKeyValid() {
@@ -860,7 +862,22 @@ function Options() {
               <button onClick={handlePrivateKeyShowClick}>
                 {isKeyHidden ? <EyeIcon /> : <EyeOffIcon />}
               </button>
-              <button onClick={copyNsec} disabled={!isKeyValid()} title="Copy the private key to the clipboard">
+              {/* Not `!isKeyValid()`: an empty field counts as valid — that is what lets somebody
+                  clear the box and type a new key. With PIN protection on there is nothing in the
+                  box at all, because an encrypted key cannot be displayed, so the button used to
+                  sit there enabled and do nothing whatsoever when clicked. No dialog, no message,
+                  no console line. Ask what there is to copy instead. */}
+              <button
+                onClick={copyNsec}
+                disabled={!privateKeyBytes()}
+                title={
+                  privateKeyBytes()
+                    ? 'Copy the private key to the clipboard'
+                    : pinEnabled
+                      ? 'This key is encrypted with your PIN and cannot be copied from here'
+                      : 'There is no key here to copy'
+                }
+              >
                 <CopyIcon />
               </button>
               <button disabled={selectedProfilePubKey != ''} onClick={generateRandomPrivateKey}>
@@ -868,7 +885,11 @@ function Options() {
               </button>
             </div>
           </div>
-          <button disabled={!isKeyValid() || selectedProfilePubKey != ''} onClick={savePrivateKey}>
+          <button
+            disabled={!privateKey || !isKeyValid() || selectedProfilePubKey != ''}
+            onClick={savePrivateKey}
+            title={privateKey ? 'Save this key' : 'Paste or generate a key first'}
+          >
             Save key
           </button>
 
