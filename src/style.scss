@@ -142,6 +142,31 @@ code {
   font-family: 'Courier New', Courier, monospace;
 }
 
+// Icons draw their outlines with stroke="currentColor", so they follow whatever colour the thing
+// around them sets. Their solid parts do not: nine of the ionicons here contain a shape with no
+// fill attribute at all — the trash can's lid, the slash through eye-off, both carets, the cog —
+// and SVG's default fill is black. Those shapes came out black on a light blue button whatever the
+// palette said, which is not a contrast problem and could not be fixed by changing a colour.
+//
+// Inheriting the fill fixes exactly those and nothing else: a shape that declares fill="none" keeps
+// it, because an element's own presentation attribute beats a value it would otherwise inherit.
+svg {
+  fill: currentColor;
+}
+
+// Outline icons are drawn at stroke-width 32 on a 512 viewBox. At the 16px these render at, that
+// is a one-pixel hairline, and a hairline in the near-black that sits on a primary button reads as
+// a smudge rather than a shape — the label survives that colour because letterforms are wider than
+// one pixel, and an icon does not. So: a little larger, and a heavier line.
+//
+// Only the shapes that are actually outlines. The solid ones — both carets, the cog, the slash
+// through eye-off — are filled, and giving those a thicker stroke would just fatten them.
+button svg [fill='none'],
+.button svg [fill='none'],
+.button-onlyicon svg [fill='none'] {
+  stroke-width: 44;
+}
+
 /* ---- Logotype ---- */
 // Inline SVG rather than an image, so the wordmark can be drawn in currentColor and follow the
 // theme. The PNG it replaces was 464x200 and carried its own near-black lettering; sizing is
@@ -226,7 +251,9 @@ button,
   img,
   svg {
     display: inline-block;
-    height: 1em;
+    // 1.15em rather than 1em: an icon has to carry its shape at this size, where a letter only has
+    // to be legible. See the note on stroke weight above.
+    height: 1.15em;
     color: $color-primary-inv;
     margin: 0 0.2em 0 0.2em;
   }
@@ -304,7 +331,7 @@ button,
   img,
   svg {
     display: inline-block;
-    height: 1em;
+    height: 1.15em;
     color: $color-primary;
     margin: 0 0.2em 0 0;
   }
