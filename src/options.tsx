@@ -32,7 +32,10 @@ import {
   formatPermissionConditionLabel,
   formatPermissionDecisionLabel
 } from './common';
-import logotype from './assets/logo/logotype.png';
+// The SVG rather than the PNG: its wordmark is drawn in currentColor, so it follows the
+// theme. The PNG has near-black lettering baked in, which on the dark background came out
+// at 1.04:1 — a name you cannot read on your own settings page.
+import Logotype from './assets/logo/logotype.svg';
 import AddCircleIcon from './assets/icons/add-circle-outline.svg';
 import ArrowUpCircleIcon from './assets/icons/arrow-up-circle-outline.svg';
 import CopyIcon from './assets/icons/copy-outline.svg';
@@ -789,7 +792,7 @@ function Options() {
     <>
       <header className="header">
         <h1>
-          <img src={logotype} alt="Attest" />
+          <Logotype className="logotype" role="img" aria-label="Attest" />
         </h1>
         <p>nostr signer extension</p>
       </header>

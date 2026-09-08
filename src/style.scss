@@ -11,6 +11,7 @@
   --color-primary-inv: #ffffff;
   --color-primary-light: #0b2d40;
   --color-primary-disabled: #394a53;
+  --color-primary-disabled-text: #ffffff;
   --color-text: #0c1c25;
   --color-text-inv: #ffffff;
   --color-text-muted: #606060;
@@ -35,6 +36,10 @@
   --color-primary-inv: #0b1116;
   --color-primary-light: #38bdf8;
   --color-primary-disabled: #3f5460;
+  // Not --color-primary-inv here. A disabled button keeps the text colour meant for a bright
+  // primary button, which in this palette is nearly black: 2.4:1 on the disabled grey, i.e. a
+  // label you cannot read. This is the same grey with text that survives it, at 5.3:1.
+  --color-primary-disabled-text: #cbd5e1;
   --color-text: #e6edf3;
   --color-text-inv: #0b1116;
   --color-text-muted: #9aa7b2;
@@ -63,6 +68,7 @@ $color-primary: var(--color-primary);
 $color-primary-inv: var(--color-primary-inv);
 $color-primary-light: var(--color-primary-light);
 $color-primary-disabled: var(--color-primary-disabled);
+$color-primary-disabled-text: var(--color-primary-disabled-text);
 $color-text: var(--color-text);
 $color-text-inv: var(--color-text-inv);
 $color-text-muted: var(--color-text-muted);
@@ -134,6 +140,24 @@ h4 {
 
 code {
   font-family: 'Courier New', Courier, monospace;
+}
+
+/* ---- Logotype ---- */
+// Inline SVG rather than an image, so the wordmark can be drawn in currentColor and follow the
+// theme. The PNG it replaces was 464x200 and carried its own near-black lettering; sizing is
+// therefore stated here rather than inherited from a file.
+.logotype {
+  display: block;
+  height: 6rem;
+  width: auto;
+  max-width: 100%;
+  margin: 0 auto;
+  color: $color-text;
+}
+
+.popup-main .logotype {
+  height: 2.5rem;
+  margin: 0;
 }
 
 /* ---- General styles ---- */
@@ -212,8 +236,12 @@ button,
       stroke: $color-primary-inv;
     }
 
+    // Both halves need the class. Written as `&.svg-fill path, rect` the second selector stood on
+    // its own, so the rect in any outline icon — the frame of the copy icon, for one — was filled
+    // solid instead of drawn. That turns an outline into a block, and in the dark palette the
+    // block is nearly black.
     &.svg-fill path,
-    rect {
+    &.svg-fill rect {
       fill: $color-primary-inv;
     }
   }
@@ -247,7 +275,16 @@ button,
 
   &:disabled {
     background-color: $color-primary-disabled;
+    color: $color-primary-disabled-text;
     cursor: not-allowed;
+
+    svg {
+      color: $color-primary-disabled-text;
+      path,
+      rect {
+        stroke: $color-primary-disabled-text;
+      }
+    }
   }
 }
 .button-onlyicon {
