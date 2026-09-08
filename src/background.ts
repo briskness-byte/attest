@@ -150,10 +150,30 @@ browser.runtime.onMessage.addListener(async (message, sender) => {
   }
 });
 
+/**
+ * Another installed extension asking this one to sign, rather than a web page.
+ *
+ * The caller has to be named, because whatever name it gets is what the authorization dialog puts
+ * in its headline and what ends up in the permissions table under "forever". This used to take the
+ * host out of `sender.url`, which for an extension is `moz-extension://<uuid>/` — and in Firefox
+ * that UUID is generated per installation. It identifies nobody, it differs on every machine, and
+ * a permanent grant to it is a permanent grant to something the user cannot look up.
+ *
+ * `sender.id` is the add-on's real id: the one on its listing, the same everywhere. It is prefixed
+ * so that an extension can never land in the same row of the permissions table as a website with a
+ * matching name, and so the dialog can say plainly that the request is not coming from a page.
+ *
+ * Grants made under the old UUID no longer match and are simply asked again, which is the right
+ * direction for a permission to fail in.
+ */
 browser.runtime.onMessageExternal.addListener(async (message, sender) => {
   const { type, params } = message as ContentMessageArgs;
-  let extensionId = new URL(sender.url ?? '').host;
-  return handleContentScriptMessage({ type, params, host: extensionId });
+
+  if (!sender?.id) {
+    return { error: { message: 'the caller could not be identified' } };
+  }
+
+  return handleContentScriptMessage({ type, params, host: `extension:${sender.id}` });
 });
 
 // Clear any stale open prompts on browser startup

@@ -11,6 +11,7 @@ const hub = (globalThis.__attestStub ??= {
   created: [], // every window ever opened, in order
   storage: new Map(),
   onMessage: [],
+  onMessageExternal: [],
   onWindowRemoved: [],
   onTabRemoved: [],
   onStorageChanged: [],
@@ -51,6 +52,12 @@ export function send(message, sender = null) {
   return hub.onMessage[0](message, sender);
 }
 
+/** The same, for a message from another extension rather than from a page of our own. */
+export function sendExternal(message, sender) {
+  if (!hub.onMessageExternal.length) throw new Error('background.ts registered no external listener');
+  return hub.onMessageExternal[0](message, sender);
+}
+
 const keysOf = query => {
   if (query == null) return null; // everything
   if (typeof query === 'string') return [query];
@@ -63,10 +70,18 @@ const browser = {
     id: 'attest@test',
     getURL: path => `moz-extension://attest-test/${path}`,
     onMessage: { addListener: fn => hub.onMessage.push(fn) },
-    onMessageExternal: { addListener: () => {} },
+    onMessageExternal: { addListener: fn => hub.onMessageExternal.push(fn) },
     onStartup: { addListener: () => {} },
     onInstalled: { addListener: () => {} },
     sendMessage: async () => undefined
+  },
+
+  // Present so background.ts's toolbar badge does not log a failure on every run. Not asserted on
+  // anywhere: the badge is Firefox's to draw.
+  browserAction: {
+    setBadgeText: async () => {},
+    setBadgeBackgroundColor: async () => {},
+    setTitle: async () => {}
   },
 
   storage: {
