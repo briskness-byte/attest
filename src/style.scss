@@ -12,6 +12,22 @@
   --color-primary-light: #0b2d40;
   --color-primary-disabled: #394a53;
   --color-primary-disabled-text: #ffffff;
+  // Buttons have their own surface rather than borrowing --color-primary, which also colours
+  // selects, icon-only buttons and borders. In this palette they are the same thing; in the dark
+  // one they are deliberately not.
+  --color-button-surface: #0c1c25;
+  --color-button-border: #0c1c25;
+  --color-button-text: #ffffff;
+  --color-button-hover: #0b2d40;
+  // Text on a semantic fill (success, warning, danger), which is a different question from text on
+  // an ordinary button.
+  --color-on-accent: #ffffff;
+  // Hover states darken here and lighten in the dark palette. The old rule reused the -light
+  // tokens, which in the dark palette are dark tints meant for alert backgrounds: hovering
+  // Authorize or Reject dropped its label to 1.4:1.
+  --color-success-hover: #1f8040;
+  --color-warning-hover: #c96434;
+  --color-danger-hover: #8f380b;
   --color-text: #0c1c25;
   --color-text-inv: #ffffff;
   --color-text-muted: #606060;
@@ -40,6 +56,18 @@
   // primary button, which in this palette is nearly black: 2.4:1 on the disabled grey, i.e. a
   // label you cannot read. This is the same grey with text that survives it, at 5.3:1.
   --color-primary-disabled-text: #cbd5e1;
+  // Not the accent. Every button being a bright slab made the loudest thing on the page the
+  // chrome, and left Delete (7.0:1 against the page) quieter than Rename (10.7:1) — the wrong way
+  // round on something that holds keys. A neutral surface needs a visible border to still read as
+  // a control: #5c6b79 is 3.26:1 against the page.
+  --color-button-surface: #243240;
+  --color-button-border: #5c6b79;
+  --color-button-text: #e6edf3;
+  --color-button-hover: #2e3f50;
+  --color-on-accent: #0b1116;
+  --color-success-hover: #8adeab;
+  --color-warning-hover: #f5bd95;
+  --color-danger-hover: #f5a184;
   --color-text: #e6edf3;
   --color-text-inv: #0b1116;
   --color-text-muted: #9aa7b2;
@@ -69,6 +97,14 @@ $color-primary-inv: var(--color-primary-inv);
 $color-primary-light: var(--color-primary-light);
 $color-primary-disabled: var(--color-primary-disabled);
 $color-primary-disabled-text: var(--color-primary-disabled-text);
+$color-button-surface: var(--color-button-surface);
+$color-button-border: var(--color-button-border);
+$color-button-text: var(--color-button-text);
+$color-button-hover: var(--color-button-hover);
+$color-on-accent: var(--color-on-accent);
+$color-success-hover: var(--color-success-hover);
+$color-warning-hover: var(--color-warning-hover);
+$color-danger-hover: var(--color-danger-hover);
 $color-text: var(--color-text);
 $color-text-inv: var(--color-text-inv);
 $color-text-muted: var(--color-text-muted);
@@ -233,8 +269,8 @@ button,
   flex-direction: row;
   align-items: center;
   justify-content: center;
-  border: 2px solid $color-primary;
-  background-color: $color-primary;
+  border: 2px solid $color-button-border;
+  background-color: $color-button-surface;
   padding: 0.5em 0.7em;
   text-align: center;
   text-decoration: none;
@@ -245,7 +281,7 @@ button,
 
   &,
   * {
-    color: $color-primary-inv;
+    color: $color-button-text;
   }
 
   img,
@@ -254,13 +290,13 @@ button,
     // 1.15em rather than 1em: an icon has to carry its shape at this size, where a letter only has
     // to be legible. See the note on stroke weight above.
     height: 1.15em;
-    color: $color-primary-inv;
+    color: $color-button-text;
     margin: 0 0.2em 0 0.2em;
   }
   svg {
     path,
     rect {
-      stroke: $color-primary-inv;
+      stroke: $color-button-text;
     }
 
     // Both halves need the class. Written as `&.svg-fill path, rect` the second selector stood on
@@ -269,34 +305,57 @@ button,
     // block is nearly black.
     &.svg-fill path,
     &.svg-fill rect {
-      fill: $color-primary-inv;
+      fill: $color-button-text;
+    }
+  }
+
+  // A semantic fill is bright in both palettes, so what goes on top of it is its own decision and
+  // not the ordinary button text — which is white in one palette and near-white in the other.
+  @mixin on-accent {
+    &,
+    * {
+      color: $color-on-accent;
+    }
+    svg {
+      color: $color-on-accent;
+      path,
+      rect {
+        stroke: $color-on-accent;
+      }
+      &.svg-fill path,
+      &.svg-fill rect {
+        fill: $color-on-accent;
+      }
     }
   }
 
   &.button-success {
     background-color: $color-success;
     border-color: $color-success;
+    @include on-accent;
   }
   &.button-warning {
     background-color: $color-warning;
     border-color: $color-warning;
+    @include on-accent;
   }
   &.button-danger {
     background-color: $color-danger;
     border-color: $color-danger;
+    @include on-accent;
   }
 
   &:hover {
-    background-color: $color-primary-light;
+    background-color: $color-button-hover;
 
     &.button-success {
-      background-color: $color-success-light;
+      background-color: $color-success-hover;
     }
     &.button-warning {
-      background-color: $color-warning-light;
+      background-color: $color-warning-hover;
     }
     &.button-danger {
-      background-color: $color-danger-light;
+      background-color: $color-danger-hover;
     }
   }
 
