@@ -51,7 +51,10 @@ yarn run build >/dev/null 2>&1 || { echo "! build failed"; exit 1; }
 rm -f var/releases/*
 mkdir -p var/releases
 ( cd dist && zip -qr archive * ) && mv dist/archive.zip "var/releases/attest-$NEW.xpi"
-( cd src && zip -qr "../var/releases/attest-$NEW-src.zip" . )
+# Everything git tracks, not just src/: a reviewer has to be able to rebuild the package, and
+# build.js, package.json, yarn.lock and babel.config.js are what makes that possible. Zipping
+# src/ alone produced an archive AMO could read but nobody could build from.
+git ls-files -z | xargs -0 zip -qX "var/releases/attest-$NEW-src.zip"
 
 # What is actually inside the file, rather than what the source says should be.
 python3 - "$NEW" <<'PY'
