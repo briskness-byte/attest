@@ -29,13 +29,10 @@
 // with only `webextension-polyfill` swapped out. It complements the browser suite rather than
 // replacing it, and neither one covers the other's ground.
 
-import { build } from 'esbuild';
 import { getPublicKey } from 'nostr-tools';
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { rm } from 'node:fs/promises';
 
+import { loadBackground } from './load-background.mjs';
 import { reporter } from './harness.mjs';
 import stub, { control, reset, killWindowSilently, closeWindow, send } from './browser-stub.mjs';
 
@@ -68,25 +65,7 @@ function within(ms, promise) {
 
 // ------------------------------------------------------------------ the extension under test
 
-const root = resolve(import.meta.dirname, '..');
-const outdir = await mkdtemp(join(tmpdir(), 'attest-test-'));
-const outfile = join(outdir, 'background.mjs');
-
-await build({
-  bundle: true,
-  entryPoints: [join(root, 'src/background.ts')],
-  outfile,
-  format: 'esm',
-  platform: 'neutral',
-  mainFields: ['module', 'main'],
-  conditions: ['import', 'default'],
-  // The one substitution. Everything else — nostr-tools, the storage layer, the permission
-  // model — is the real code, so a change that breaks them breaks this run.
-  alias: { 'webextension-polyfill': join(root, 'tests/browser-stub.mjs') },
-  logLevel: 'warning'
-});
-
-await import(pathToFileURL(outfile).href); // registers the listeners on the stub
+const outdir = await loadBackground();
 
 // ------------------------------------------------------------------ fixtures
 

@@ -140,7 +140,7 @@ export type OpenPromptItem = {
 };
 
 export type PinMessage = {
-  type: 'setupPin' | 'verifyPin' | 'disablePin';
+  type: 'setupPin' | 'verifyPin' | 'disablePin' | 'copyNsec';
   pin?: string;
   encryptedKey?: string;
   id?: string;
@@ -149,4 +149,11 @@ export type PinMessage = {
 export type PinMessageResponse = {
   success: boolean;
   error?: string;
+  /** Only ever set for 'copyNsec', and only ever sent to the PIN window that asked. */
+  nsec?: string;
+  /** Which key that is, so the window can say what it put on the clipboard. */
+  npub?: string;
 };
+
+/** The PIN window's reason for existing. 'copy' decrypts a key so it can be taken elsewhere. */
+export type PinMode = 'setup' | 'unlock' | 'disable' | 'copy';

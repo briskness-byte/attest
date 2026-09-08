@@ -27,7 +27,7 @@ const SITE_PORT = Number(process.env.QA_SITE_PORT || 8720);
 
 // Everything the background will answer that a page has no business asking for. Each one either
 // hands over the PIN, changes it, or opens a window that can.
-const PRIVILEGED = ['getCachedPin', 'verifyPin', 'setupPin', 'disablePin', 'openPinPrompt', 'encryptPrivateKey'];
+const PRIVILEGED = ['getCachedPin', 'verifyPin', 'setupPin', 'disablePin', 'openPinPrompt', 'encryptPrivateKey', 'copyNsec'];
 
 // The NIP-07 surface. A guard that closed these would be worse than the hole it fixed — the
 // extension would stop being a signer.

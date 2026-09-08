@@ -3,13 +3,11 @@ import { createRoot } from 'react-dom/client';
 import browser from 'webextension-polyfill';
 import { encryptPrivateKey } from './pinEncryption';
 import * as Storage from './storage';
-import { PinMessageResponse } from './types';
+import { PinMessageResponse, PinMode } from './types';
 
 import { applyTheme } from './theme';
 
 applyTheme();
-
-type PinMode = 'setup' | 'unlock' | 'disable';
 
 function PinPrompt() {
   const [mode, setMode] = useState<PinMode>('unlock');
@@ -18,6 +16,7 @@ function PinPrompt() {
   const [error, setError] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [promptId, setPromptId] = useState('');
+  const [copied, setCopied] = useState('');
 
   useEffect(() => {
     // Parse URL parameters
@@ -25,7 +24,7 @@ function PinPrompt() {
     const urlMode = urlParams.get('mode') as PinMode;
     const id = urlParams.get('id');
 
-    if (urlMode && ['setup', 'unlock', 'disable'].includes(urlMode)) {
+    if (urlMode && ['setup', 'unlock', 'disable', 'copy'].includes(urlMode)) {
       setMode(urlMode);
     }
     if (id) {
@@ -144,6 +143,37 @@ function PinPrompt() {
         setIsProcessing(false);
         setPin(''); // Clear PIN on error
       }
+    } else if (mode === 'copy') {
+      // The key is decrypted in the background and handed to this window, which puts it on the
+      // clipboard and closes. It never reaches the options page, and the PIN typed here is used
+      // for this one decryption — the cached PIN is deliberately not accepted, because copying a
+      // private key out should cost a deliberate act every time.
+      setIsProcessing(true);
+      try {
+        const response = (await browser.runtime.sendMessage({
+          type: 'copyNsec',
+          pin,
+          id: promptId
+        })) as PinMessageResponse;
+
+        if (response && response.success && response.nsec) {
+          // The write has to happen while the click that opened this path is still the last thing
+          // the user did, so it stays a user gesture.
+          await navigator.clipboard.writeText(response.nsec);
+          setPin('');
+          setCopied(response.npub || '');
+          // Long enough to read which key it was, short enough not to leave a window lying around.
+          setTimeout(() => window.close(), 4000);
+        } else {
+          setError(response?.error || 'Incorrect PIN');
+          setIsProcessing(false);
+          setPin('');
+        }
+      } catch (error: any) {
+        setError(error?.message || 'Could not copy the private key');
+        setIsProcessing(false);
+        setPin('');
+      }
     } else if (mode === 'disable') {
       // Disable mode: verify PIN and disable protection
       setIsProcessing(true);
@@ -185,6 +215,8 @@ function PinPrompt() {
         return 'Enter PIN';
       case 'disable':
         return 'Disable PIN Protection';
+      case 'copy':
+        return 'Copy your private key';
       default:
         return 'Enter PIN';
     }
@@ -198,6 +230,8 @@ function PinPrompt() {
         return 'Enter your PIN to unlock your private keys.';
       case 'disable':
         return 'Enter your PIN to disable PIN protection. Your keys will be stored unencrypted.';
+      case 'copy':
+        return 'Enter your PIN to put your private key on the clipboard. Anything that can read the clipboard can read it, and a clipboard manager will keep a copy in its history — on disk, often for a long time. Paste it where you need it, then copy something else.';
       default:
         return '';
     }
@@ -210,13 +244,19 @@ function PinPrompt() {
         <p>{getDescription()}</p>
       </header>
       <main>
+        {copied && (
+          <div className="alert success" role="status">
+            Copied the private key for {copied.slice(0, 12)}…{copied.slice(-4)} to the clipboard.
+            This window closes by itself.
+          </div>
+        )}
         {error && (
           <div className="alert warning" role="alert">
             {error}
           </div>
         )}
 
-        <div className="form-field">
+        <div className="form-field" hidden={!!copied}>
           <label htmlFor="pin-input">PIN (4-6 digits):</label>
           <input
             id="pin-input"
@@ -245,7 +285,7 @@ function PinPrompt() {
           </div>
         )}
 
-        <div className="action-buttons">
+        <div className="action-buttons" hidden={!!copied}>
           <button
             onClick={handleConfirm}
             disabled={isProcessing || pin.length < 4 || (mode === 'setup' && confirmPin !== pin)}
@@ -255,7 +295,9 @@ function PinPrompt() {
               ? 'Enable PIN Protection'
               : mode === 'disable'
                 ? 'Disable Protection'
-                : 'Unlock'}
+                : mode === 'copy'
+                  ? 'Copy to clipboard'
+                  : 'Unlock'}
           </button>
         </div>
       </main>

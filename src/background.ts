@@ -1,6 +1,6 @@
 import browser from 'webextension-polyfill';
 import { validateEvent, finalizeEvent, getPublicKey, nip44 } from 'nostr-tools';
-import { nip04 } from 'nostr-tools';
+import { nip04, nip19 } from 'nostr-tools';
 
 import * as Storage from './storage';
 import {
@@ -12,6 +12,7 @@ import {
   PermissionDecision,
   PinMessage,
   PinMessageResponse,
+  PinMode,
   PromptParams,
   PromptResponse
 } from './types';
@@ -54,7 +55,8 @@ const EXTENSION_PAGES_ONLY = new Set([
   'disablePin',
   'openPinPrompt',
   'encryptPrivateKey',
-  'getCachedPin'
+  'getCachedPin',
+  'copyNsec'
 ]);
 
 /**
@@ -84,15 +86,16 @@ browser.runtime.onMessage.addListener(async (message, sender) => {
   if (
     message.type === 'setupPin' ||
     message.type === 'verifyPin' ||
-    message.type === 'disablePin'
+    message.type === 'disablePin' ||
+    message.type === 'copyNsec'
   ) {
     return handlePinMessage(message as PinMessage, sender);
   }
 
   // Check if it's a request to open a PIN prompt
   if (message.type === 'openPinPrompt') {
-    const mode = message.mode as 'setup' | 'unlock' | 'disable';
-    if (mode && ['setup', 'unlock', 'disable'].includes(mode)) {
+    const mode = message.mode as PinMode;
+    if (mode && ['setup', 'unlock', 'disable', 'copy'].includes(mode)) {
       await promptPin(mode);
       return { success: true };
     }
@@ -581,10 +584,10 @@ async function getDecryptedPrivateKey(): Promise<string | null> {
 
 /**
  * Prompts the user for PIN entry
- * @param mode - 'setup', 'unlock', or 'disable'
+ * @param mode - 'setup', 'unlock', 'disable', or 'copy'
  * @returns The entered PIN, or null if cancelled/error
  */
-function promptPin(mode: 'setup' | 'unlock' | 'disable'): Promise<string | null> {
+function promptPin(mode: PinMode): Promise<string | null> {
   const id = Math.random().toString().slice(4);
 
   return new Promise((resolve, reject) => {
@@ -728,6 +731,59 @@ async function handlePinMessage(
         }
 
         return { success: true };
+      }
+
+      // Hand the decrypted key to the PIN window that just asked for it, so it can be put on the
+      // clipboard and taken elsewhere. With PIN protection on this is the only way a key can leave
+      // the extension at all, and a signer that cannot give a key back is a trap rather than a
+      // safe: whoever turns PIN protection on would be choosing, without being told, never to move
+      // that identity again.
+      //
+      // Three things keep this narrow, and none of them is optional:
+      //
+      //   - it answers extension pages only, like every other PIN message (EXTENSION_PAGES_ONLY),
+      //     so a website asking for it is refused before this switch is reached;
+      //   - it decrypts with the PIN typed into this window, never with the cached one, and does
+      //     not refresh the cache. Riding the cache would make "export my private key" a
+      //     two-click operation for anybody who reaches an unlocked browser;
+      //   - the key goes back to that window and nowhere else. The options page never receives it.
+      case 'copyNsec': {
+        if (!localPin) {
+          return { success: false, error: 'Missing PIN' };
+        }
+
+        const storedKey = await Storage.getEncryptedPrivateKey();
+        if (!storedKey) {
+          return { success: false, error: 'No encrypted key found' };
+        }
+
+        let hexKey: string | null = null;
+        try {
+          hexKey = await decryptPrivateKey(localPin, storedKey);
+        } catch (error) {
+          return { success: false, error: 'Incorrect PIN' };
+        }
+        if (!hexKey) {
+          return { success: false, error: 'No key to copy' };
+        }
+
+        const bytes = convertHexToUint8Array(hexKey);
+        try {
+          return {
+            success: true,
+            nsec: nip19.nsecEncode(bytes),
+            npub: nip19.npubEncode(derivePublicKeyFromPrivateKey(hexKey))
+          };
+        } finally {
+          clearUint8Array(bytes);
+          hexKey = clearStringReference(hexKey) as any;
+          // The prompt is resolved but the window is deliberately left open: it still has to write
+          // to the clipboard and say which key it wrote. It closes itself afterwards.
+          if (pinPrompt) {
+            pinPrompt.resolve(null);
+            delete pinPromptMap[pinPrompt.id];
+          }
+        }
       }
 
       default:

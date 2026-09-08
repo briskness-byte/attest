@@ -256,6 +256,21 @@ function Options() {
   // mitigation a clipboard manager has already outrun is a bad trade. Say what happens instead.
   async function copyNsec() {
     const bytes = privateKeyBytes();
+
+    // With PIN protection on there is nothing in the field to copy — an encrypted key cannot be
+    // displayed — so the decryption happens in the PIN window instead. This page deliberately
+    // never receives the key: it only asks for that window to be opened.
+    if (!bytes && pinEnabled) {
+      const response = (await browser.runtime.sendMessage({
+        type: 'openPinPrompt',
+        mode: 'copy'
+      })) as { success: boolean; error?: string };
+      if (response && !response.success) {
+        showMessage(response.error || 'Could not open the PIN prompt', 'warning');
+      }
+      return;
+    }
+
     if (!bytes) return;
     const ok = window.confirm(
       'Copy the private key to the clipboard?\n\n' +
@@ -869,12 +884,12 @@ function Options() {
                   no console line. Ask what there is to copy instead. */}
               <button
                 onClick={copyNsec}
-                disabled={!privateKeyBytes()}
+                disabled={!privateKeyBytes() && !pinEnabled}
                 title={
                   privateKeyBytes()
                     ? 'Copy the private key to the clipboard'
                     : pinEnabled
-                      ? 'This key is encrypted with your PIN and cannot be copied from here'
+                      ? 'Enter your PIN to copy this key to the clipboard'
                       : 'There is no key here to copy'
                 }
               >
