@@ -1,9 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import browser from 'webextension-polyfill';
 import { encryptPrivateKey } from './pinEncryption';
 import * as Storage from './storage';
-import { PinMessageResponse, PinMode } from './types';
+import { MIN_PASSPHRASE_LENGTH, secretProblem } from './common';
+import { PinMessageResponse, PinMode, SecretKind } from './types';
 
 import { applyTheme } from './theme';
 
@@ -11,12 +12,18 @@ applyTheme();
 
 function PinPrompt() {
   const [mode, setMode] = useState<PinMode>('unlock');
+  // What protects the keys: chosen here during setup, read from storage for everything else. Null
+  // until known, so a passphrase is never typed into a field that throws away all but digits.
+  const [kind, setKind] = useState<SecretKind | null>(null);
   const [pin, setPin] = useState('');
   const [confirmPin, setConfirmPin] = useState('');
   const [error, setError] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [promptId, setPromptId] = useState('');
   const [copied, setCopied] = useState('');
+  const input = useRef<HTMLInputElement>(null);
+
+  const noun = kind === 'passphrase' ? 'passphrase' : 'PIN';
 
   useEffect(() => {
     // Parse URL parameters
@@ -24,12 +31,17 @@ function PinPrompt() {
     const urlMode = urlParams.get('mode') as PinMode;
     const id = urlParams.get('id');
 
-    if (urlMode && ['setup', 'unlock', 'disable', 'copy'].includes(urlMode)) {
-      setMode(urlMode);
-    }
+    const knownMode: PinMode =
+      urlMode && ['setup', 'unlock', 'disable', 'copy'].includes(urlMode) ? urlMode : 'unlock';
+    setMode(knownMode);
     if (id) {
       setPromptId(id);
     }
+
+    // A new setup starts on the passphrase, the choice that protects the keys from somebody who
+    // copies the profile. Every other mode uses whatever the keys were protected with.
+    if (knownMode === 'setup') setKind('passphrase');
+    else Storage.getPinKind().then(setKind);
 
     // Cleanup: clear PIN state on component unmount
     return () => {
@@ -38,28 +50,46 @@ function PinPrompt() {
     };
   }, []);
 
+  // autoFocus does nothing on a field that is still disabled, so focus it once it can be used.
+  useEffect(() => {
+    if (kind) input.current?.focus();
+  }, [kind]);
+
+  function chooseKind(next: SecretKind) {
+    setKind(next);
+    setPin('');
+    setConfirmPin('');
+    setError('');
+  }
+
+  /** A PIN field keeps digits, at most six of them. A passphrase field keeps what was typed. */
+  function clean(value: string) {
+    return kind === 'pin' ? value.replace(/\D/g, '').slice(0, 6) : value;
+  }
+
   function handlePinChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const value = e.target.value.replace(/\D/g, ''); // Only allow digits
-    if (value.length <= 6) {
-      setPin(value);
-      setError(''); // Clear error on input
-    }
+    setPin(clean(e.target.value));
+    setError(''); // Clear error on input
   }
 
   function handleConfirmPinChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const value = e.target.value.replace(/\D/g, ''); // Only allow digits
-    if (value.length <= 6) {
-      setConfirmPin(value);
-      setError(''); // Clear error on input
-    }
+    setConfirmPin(clean(e.target.value));
+    setError(''); // Clear error on input
   }
 
-  function validatePin(pinValue: string): boolean {
-    if (pinValue.length < 4 || pinValue.length > 6) {
-      setError('PIN must be between 4 and 6 digits');
+  function validatePin(value: string): boolean {
+    const problem = kind ? secretProblem(kind, value) : 'Still loading';
+    if (problem) {
+      setError(problem);
       return false;
     }
     return true;
+  }
+
+  /** The background says "Incorrect PIN" whatever the kind; this window can use the right word. */
+  function explain(message: string | undefined, fallback: string) {
+    if (message === 'Incorrect PIN') return `Incorrect ${noun}`;
+    return message || fallback;
   }
 
   async function handleConfirm() {
@@ -70,12 +100,9 @@ function PinPrompt() {
     }
 
     if (mode === 'setup') {
-      // Setup mode: require PIN confirmation
+      // Setup mode: require confirmation
       if (confirmPin !== pin) {
-        setError('PINs do not match');
-        return;
-      }
-      if (!validatePin(confirmPin)) {
+        setError(`The ${noun}s do not match`);
         return;
       }
 
@@ -97,7 +124,8 @@ function PinPrompt() {
           type: 'setupPin',
           pin,
           encryptedKey,
-          id: promptId
+          id: promptId,
+          kind
         })) as PinMessageResponse;
 
         if (response && response.success) {
@@ -106,21 +134,21 @@ function PinPrompt() {
           setConfirmPin('');
           window.close();
         } else {
-          setError(response?.error || 'Failed to enable PIN protection');
+          setError(explain(response?.error, 'Could not turn protection on'));
           setIsProcessing(false);
           // Clear PIN state on error
           setPin('');
           setConfirmPin('');
         }
       } catch (error) {
-        setError(error.message || 'Failed to enable PIN protection');
+        setError(error.message || 'Could not turn protection on');
         setIsProcessing(false);
         // Clear PIN state on error
         setPin('');
         setConfirmPin('');
       }
     } else if (mode === 'unlock') {
-      // Unlock mode: verify PIN and cache it
+      // Unlock mode: verify and cache
       setIsProcessing(true);
       try {
         const response = (await browser.runtime.sendMessage({
@@ -134,19 +162,19 @@ function PinPrompt() {
           setPin('');
           window.close();
         } else {
-          setError(response?.error || 'Incorrect PIN');
+          setError(explain(response?.error, `Incorrect ${noun}`));
           setIsProcessing(false);
           setPin(''); // Clear PIN on error
         }
       } catch (error) {
-        setError(error.message || 'Failed to verify PIN');
+        setError(error.message || `Could not check the ${noun}`);
         setIsProcessing(false);
         setPin(''); // Clear PIN on error
       }
     } else if (mode === 'copy') {
       // The key is decrypted in the background and handed to this window, which puts it on the
-      // clipboard and closes. It never reaches the options page, and the PIN typed here is used
-      // for this one decryption — the cached PIN is deliberately not accepted, because copying a
+      // clipboard and closes. It never reaches the options page, and the secret typed here is used
+      // for this one decryption — the cached one is deliberately not accepted, because copying a
       // private key out should cost a deliberate act every time.
       setIsProcessing(true);
       try {
@@ -165,7 +193,7 @@ function PinPrompt() {
           // Long enough to read which key it was, short enough not to leave a window lying around.
           setTimeout(() => window.close(), 4000);
         } else {
-          setError(response?.error || 'Incorrect PIN');
+          setError(explain(response?.error, `Incorrect ${noun}`));
           setIsProcessing(false);
           setPin('');
         }
@@ -175,7 +203,7 @@ function PinPrompt() {
         setPin('');
       }
     } else if (mode === 'disable') {
-      // Disable mode: verify PIN and disable protection
+      // Disable mode: verify and turn protection off
       setIsProcessing(true);
       try {
         const response = (await browser.runtime.sendMessage({
@@ -189,12 +217,12 @@ function PinPrompt() {
           setPin('');
           window.close();
         } else {
-          setError((response && response.error) || 'Incorrect PIN');
+          setError(explain(response?.error, `Incorrect ${noun}`));
           setIsProcessing(false);
           setPin(''); // Clear PIN on error
         }
       } catch (error: any) {
-        setError(error?.message || 'Failed to disable PIN protection');
+        setError(error?.message || 'Could not turn protection off');
         setIsProcessing(false);
         setPin(''); // Clear PIN on error
       }
@@ -210,31 +238,39 @@ function PinPrompt() {
   const getTitle = () => {
     switch (mode) {
       case 'setup':
-        return 'Set up PIN Protection';
-      case 'unlock':
-        return 'Enter PIN';
+        return 'Protect your keys';
       case 'disable':
-        return 'Disable PIN Protection';
+        return 'Turn protection off';
       case 'copy':
         return 'Copy your private key';
       default:
-        return 'Enter PIN';
+        return `Enter your ${noun}`;
     }
   };
 
   const getDescription = () => {
     switch (mode) {
       case 'setup':
-        return 'Enter a PIN to protect your private keys. You will need to enter this PIN each time you use the extension.';
+        return 'Your private keys will be encrypted. You will be asked for this whenever the extension needs a key.';
       case 'unlock':
-        return 'Enter your PIN to unlock your private keys.';
+        return `Enter your ${noun} to unlock your private keys.`;
       case 'disable':
-        return 'Enter your PIN to disable PIN protection. Your keys will be stored unencrypted.';
+        return `Enter your ${noun} to turn protection off. Your keys will be stored unencrypted.`;
       case 'copy':
-        return 'Enter your PIN to put your private key on the clipboard. Anything that can read the clipboard can read it, and a clipboard manager will keep a copy in its history — on disk, often for a long time. Paste it where you need it, then copy something else.';
+        return `Enter your ${noun} to put your private key on the clipboard. Anything that can read the clipboard can read it, and a clipboard manager will keep a copy in its history — on disk, often for a long time. Paste it where you need it, then copy something else.`;
       default:
         return '';
     }
+  };
+
+  const fieldProps = {
+    type: 'password',
+    className: kind === 'passphrase' ? 'passphrase' : undefined,
+    inputMode: kind === 'pin' ? ('numeric' as const) : undefined,
+    maxLength: kind === 'pin' ? 6 : undefined,
+    autoComplete: 'off',
+    onKeyPress: handleKeyPress,
+    disabled: isProcessing || !kind
   };
 
   return (
@@ -256,31 +292,53 @@ function PinPrompt() {
           </div>
         )}
 
+        {mode === 'setup' && (
+          <>
+            <fieldset className="secret-kind" aria-label="Protect with" disabled={isProcessing}>
+              <label>
+                <input
+                  type="radio"
+                  name="secret-kind"
+                  value="passphrase"
+                  checked={kind === 'passphrase'}
+                  onChange={() => chooseKind('passphrase')}
+                />
+                a passphrase
+              </label>
+              <label>
+                <input
+                  type="radio"
+                  name="secret-kind"
+                  value="pin"
+                  checked={kind === 'pin'}
+                  onChange={() => chooseKind('pin')}
+                />
+                a PIN
+              </label>
+            </fieldset>
+            {/* The difference between the two is the whole reason there is a choice, so it is
+                said here, at the moment of choosing, rather than left for the options page. */}
+            <p className="text-help secret-kind-help">
+              {kind === 'pin'
+                ? 'A PIN of 4 to 6 digits stops somebody using this browser. It does not stop somebody who copies your Firefox profile: every such PIN can be tried in minutes. For that, choose a passphrase.'
+                : `At least ${MIN_PASSPHRASE_LENGTH} characters. Four or five random words are easy to type and very hard to guess — even for somebody with a copy of your Firefox profile.`}
+            </p>
+          </>
+        )}
+
         <div className="form-field" hidden={!!copied}>
-          <label htmlFor="pin-input">PIN (4-6 digits):</label>
-          <input
-            id="pin-input"
-            type="password"
-            value={pin}
-            maxLength={6}
-            onChange={handlePinChange}
-            onKeyPress={handleKeyPress}
-            disabled={isProcessing}
-            autoFocus
-          />
+          <label htmlFor="pin-input">{kind === 'passphrase' ? 'Passphrase:' : 'PIN (4-6 digits):'}</label>
+          <input id="pin-input" ref={input} value={pin} onChange={handlePinChange} {...fieldProps} />
         </div>
 
         {mode === 'setup' && (
           <div className="form-field">
-            <label htmlFor="confirm-pin-input">Confirm PIN:</label>
+            <label htmlFor="confirm-pin-input">Confirm {noun}:</label>
             <input
               id="confirm-pin-input"
-              type="password"
               value={confirmPin}
-              maxLength={6}
               onChange={handleConfirmPinChange}
-              onKeyPress={handleKeyPress}
-              disabled={isProcessing}
+              {...fieldProps}
             />
           </div>
         )}
@@ -288,13 +346,18 @@ function PinPrompt() {
         <div className="action-buttons" hidden={!!copied}>
           <button
             onClick={handleConfirm}
-            disabled={isProcessing || pin.length < 4 || (mode === 'setup' && confirmPin !== pin)}
+            disabled={
+              isProcessing ||
+              !kind ||
+              !!secretProblem(kind, pin) ||
+              (mode === 'setup' && confirmPin !== pin)
+            }
             className="button button-success"
           >
             {mode === 'setup'
-              ? 'Enable PIN Protection'
+              ? `Protect with this ${noun}`
               : mode === 'disable'
-                ? 'Disable Protection'
+                ? 'Turn protection off'
                 : mode === 'copy'
                   ? 'Copy to clipboard'
                   : 'Unlock'}

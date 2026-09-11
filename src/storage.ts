@@ -9,7 +9,8 @@ import {
   PermissionDecision,
   ProfileConfig,
   ProfilesConfig,
-  RelaysConfig
+  RelaysConfig,
+  SecretKind
 } from './types';
 import {
   convertHexToUint8Array,
@@ -78,6 +79,16 @@ export async function setPinEnabled(enabled: boolean): Promise<void> {
   await browser.storage.local.set({
     [ConfigurationKeys.PIN_ENABLED]: enabled
   });
+}
+
+/** What the keys are protected with. Absent means a PIN: the only kind there was before 1.25.0. */
+export async function getPinKind(): Promise<SecretKind> {
+  const data = await browser.storage.local.get(ConfigurationKeys.PIN_KIND);
+  return data[ConfigurationKeys.PIN_KIND] === 'passphrase' ? 'passphrase' : 'pin';
+}
+
+export async function setPinKind(kind: SecretKind): Promise<void> {
+  await browser.storage.local.set({ [ConfigurationKeys.PIN_KIND]: kind });
 }
 
 /**
@@ -328,6 +339,7 @@ export async function disablePinProtection(pin: string): Promise<void> {
 
     // Disable PIN protection BEFORE updating private key to allow plain-text storage
     await setPinEnabled(false);
+    await browser.storage.local.remove(ConfigurationKeys.PIN_KIND);
 
     // Update active private key (this will also update active public key)
     // This must happen after disabling PIN protection to avoid the error

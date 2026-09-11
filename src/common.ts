@@ -5,7 +5,8 @@ import {
   AuthorizationCondition,
   PermissionConfig,
   PermissionDecision,
-  ProfilesConfig
+  ProfilesConfig,
+  SecretKind
 } from './types';
 
 export const PERMISSIONS_REQUIRED = {
@@ -234,6 +235,25 @@ export function migratePermissionKeys(permissions: PermissionConfig | undefined)
     }
   }
   return out;
+}
+
+/** The shortest passphrase accepted: twelve characters, which three or four words clear easily. */
+export const MIN_PASSPHRASE_LENGTH = 12;
+
+/**
+ * Why `secret` will not do as a PIN or passphrase of this kind, or null if it will.
+ *
+ * Shared by the PIN window and the background, so the rule holds whatever sends the setup message.
+ * A passphrase is what makes a copied profile hard to open; one that is short, or only spaces, is a
+ * PIN by another name.
+ */
+export function secretProblem(kind: SecretKind, secret: string): string | null {
+  if (kind === 'pin') {
+    return /^\d{4,6}$/.test(secret) ? null : 'A PIN is 4 to 6 digits';
+  }
+  return secret.trim().length >= MIN_PASSPHRASE_LENGTH
+    ? null
+    : `A passphrase needs at least ${MIN_PASSPHRASE_LENGTH} characters`;
 }
 
 /** Human-readable label for the options permissions table. */

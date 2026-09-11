@@ -83,6 +83,7 @@ function Options() {
 
   let [version, setVersion] = useState('0.0.0');
   let [pinEnabled, setPinEnabled] = useState(false);
+  let [pinKind, setPinKind] = useState<'pin' | 'passphrase'>('pin');
   let [pinCacheDuration, setPinCacheDuration] = useState<number>(10 * 1000); // Default: 10 seconds
   let [theme, setTheme] = useState<'system' | 'light' | 'dark'>('system');
   let [nostrLinkHandlerUrl, setNostrLinkHandlerUrl] = useState('');
@@ -119,9 +120,22 @@ function Options() {
    */
   useEffect(() => {
     const listener = (changes: Record<string, browser.Storage.StorageChange>, area: string) => {
-      if (area !== 'local' || !changes[ConfigurationKeys.PROFILES]) return;
-      const fresh = (changes[ConfigurationKeys.PROFILES].newValue ?? {}) as ProfilesConfig;
-      setProfiles(current => ('' in current ? { ...fresh, '': current[''] } : fresh));
+      if (area !== 'local') return;
+      if (changes[ConfigurationKeys.PROFILES]) {
+        const fresh = (changes[ConfigurationKeys.PROFILES].newValue ?? {}) as ProfilesConfig;
+        setProfiles(current => ('' in current ? { ...fresh, '': current[''] } : fresh));
+      }
+      // Protection is switched in the PIN window, which takes as long as the user takes. This page
+      // used to look once, a second after opening it, and usually looked before anything happened.
+      if (changes[ConfigurationKeys.PIN_ENABLED]) {
+        const enabled = !!changes[ConfigurationKeys.PIN_ENABLED].newValue;
+        setPinEnabled(enabled);
+        // An encrypted key cannot be shown, so whatever the field held goes.
+        if (enabled) setPrivateKey('');
+      }
+      if (changes[ConfigurationKeys.PIN_KIND]) {
+        setPinKind(changes[ConfigurationKeys.PIN_KIND].newValue === 'passphrase' ? 'passphrase' : 'pin');
+      }
     };
     browser.storage.onChanged.addListener(listener);
     return () => browser.storage.onChanged.removeListener(listener);
@@ -139,6 +153,7 @@ function Options() {
     Storage.isPinEnabled().then(enabled => {
       setPinEnabled(enabled);
     });
+    Storage.getPinKind().then(setPinKind);
 
     // Load PIN cache duration
     Storage.getTheme().then(setTheme);
@@ -627,16 +642,11 @@ function Options() {
   async function handleProtectWithPinClick() {
     const mode = pinEnabled ? 'disable' : 'setup';
     try {
+      // The storage listener picks up the result, whenever the window is done with.
       await browser.runtime.sendMessage({
         type: 'openPinPrompt',
         mode
       });
-
-      // Refresh PIN status after a short delay (to allow for async operations)
-      setTimeout(async () => {
-        const enabled = await Storage.isPinEnabled();
-        setPinEnabled(enabled);
-      }, 1000);
     } catch (error) {
       console.error('Error opening PIN prompt:', error);
     }
@@ -906,7 +916,7 @@ function Options() {
                   privateKeyBytes()
                     ? 'Copy the private key to the clipboard'
                     : pinEnabled
-                      ? 'Enter your PIN to copy this key to the clipboard'
+                      ? 'Enter your PIN or passphrase to copy this key to the clipboard'
                       : 'There is no key here to copy'
                 }
               >
@@ -925,19 +935,20 @@ function Options() {
             Save key
           </button>
 
-          <h4 className="mb-0">PIN Protection</h4>
+          <h4 className="mb-0">PIN or passphrase</h4>
           <p className="text-help">
-            When enabled, ALL your private keys are encrypted. You will need to enter your PIN each
-            time you use the extension.
+            When on, ALL your private keys are encrypted, and you are asked for your PIN or
+            passphrase whenever the extension needs a key. It is then kept for the duration you
+            select below — in memory only, and never past closing Firefox.
             <br />
-            The PIN is cached for the duration you select below, and never survives closing
-            Firefox — it is held in memory and nowhere else. Your keys stay encrypted on disk
-            either way; this only decides how often you are asked while you are working.
+            A passphrase protects your keys even from somebody who copies your Firefox profile. A
+            PIN does not: every PIN of 4 to 6 digits can be tried in minutes. A PIN stops somebody
+            using this browser, and no more.
           </p>
           <div className="form-field mt-2">
             <div className="input-group">
               <button onClick={handleProtectWithPinClick}>
-                {pinEnabled ? 'Disable PIN Protection' : 'Enable PIN Protection'}
+                {pinEnabled ? 'Turn protection off' : 'Turn protection on'}
               </button>
               <select
                 id="pin-cache-duration"
@@ -961,9 +972,17 @@ function Options() {
             </div>
           </div>
           {pinEnabled && (
-            <p className="mt-1 pin-status-message">
-              PIN protection is enabled. Your private keys are encrypted.
-            </p>
+            <>
+              <p className="mt-1 pin-status-message">
+                Your private keys are encrypted with a {pinKind === 'passphrase' ? 'passphrase' : 'PIN'}.
+              </p>
+              {pinKind === 'pin' && (
+                <p className="text-help">
+                  That keeps out somebody using this browser, not somebody who copies your Firefox
+                  profile. To switch to a passphrase, turn protection off and on again.
+                </p>
+              )}
+            </>
           )}
         </section>
 

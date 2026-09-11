@@ -43,7 +43,9 @@ export enum ConfigurationKeys {
   SIGNER_ENABLED = 'signer_enabled',
   KEY_BACKUP_PENDING = 'key_backup_pending',
   /** 'origin' once stored permissions have been moved off bare hosts (1.25.0). */
-  PERMISSIONS_KEYED_BY = 'permissions_keyed_by'
+  PERMISSIONS_KEYED_BY = 'permissions_keyed_by',
+  /** 'pin' or 'passphrase': what the keys are protected with. Absent means a PIN (before 1.25.0). */
+  PIN_KIND = 'pin_kind'
 }
 
 export type RelaysConfig = {
@@ -146,6 +148,8 @@ export type PinMessage = {
   pin?: string;
   encryptedKey?: string;
   id?: string;
+  /** Only for 'setupPin': whether `pin` is a PIN or a passphrase. */
+  kind?: SecretKind;
 };
 
 export type PinMessageResponse = {
@@ -159,3 +163,6 @@ export type PinMessageResponse = {
 
 /** The PIN window's reason for existing. 'copy' decrypts a key so it can be taken elsewhere. */
 export type PinMode = 'setup' | 'unlock' | 'disable' | 'copy';
+
+/** What protects the keys. The code still says "pin" for both, as the storage keys always have. */
+export type SecretKind = 'pin' | 'passphrase';

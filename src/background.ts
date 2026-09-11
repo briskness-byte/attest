@@ -14,7 +14,8 @@ import {
   PinMessageResponse,
   PinMode,
   PromptParams,
-  PromptResponse
+  PromptResponse,
+  SecretKind
 } from './types';
 import {
   PERMISSIONS_REQUIRED,
@@ -23,7 +24,8 @@ import {
   derivePublicKeyFromPrivateKey,
   normalizeCustomAuthorizationDurationSeconds,
   isRememberableKey,
-  resolveStoredPermission
+  resolveStoredPermission,
+  secretProblem
 } from './common';
 import { LRUCache } from './LRUCache';
 import PromptManager from './PromptManager';
@@ -646,7 +648,11 @@ function promptPin(mode: PinMode): Promise<string | null> {
     else console.debug('Opening PIN prompt window.');
 
     promptWindow(`pin:${mode}`, inFlight?.windowId, () =>
-      openPopupWindow(`pin.html?mode=${mode}&id=${id}`, { width: 400, height: 300 })
+      // Setup has a choice to make and an explanation of it to show, the other modes one field.
+      openPopupWindow(`pin.html?mode=${mode}&id=${id}`, {
+        width: 460,
+        height: mode === 'setup' ? 520 : 340
+      })
     ).then(
       win => {
         const entry = pinPromptMap[id];
@@ -669,7 +675,7 @@ async function handlePinMessage(
   message: PinMessage,
   sender: browser.Runtime.MessageSender
 ): Promise<PinMessageResponse> {
-  const { type, pin, encryptedKey, id } = message;
+  const { type, pin, encryptedKey, id, kind } = message;
   const pinPrompt = id ? pinPromptMap[id] : pinPromptMap[Object.keys(pinPromptMap)[0]];
 
   if (!pinPrompt) {
@@ -686,11 +692,28 @@ async function handlePinMessage(
           return { success: false, error: 'Missing PIN or encrypted key' };
         }
 
+        // The rule is checked here as well as in the window: it is what makes a passphrase worth
+        // having, and the window is not the only thing that could send this message.
+        const secretKind: SecretKind = kind === 'passphrase' ? 'passphrase' : 'pin';
+        const problem = secretProblem(secretKind, localPin);
+        if (problem) {
+          return { success: false, error: problem };
+        }
+
+        // The window encrypted the key itself. Before anything is written, make sure what it sent
+        // opens with what it says: storing a key that does not would lock its owner out of it.
+        try {
+          await decryptPrivateKey(localPin, encryptedKey);
+        } catch (error) {
+          return { success: false, error: 'The encrypted key does not open with that secret' };
+        }
+
         // Enable PIN protection with the provided encrypted key
         await Storage.setEncryptedPrivateKey(encryptedKey);
 
         // Encrypt all profile keys and store active public key
         await Storage.enablePinProtectionWithEncryptedKey(localPin, encryptedKey);
+        await Storage.setPinKind(secretKind);
 
         // Cache PIN
         await setCachedPin(localPin);
