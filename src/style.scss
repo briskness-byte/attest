@@ -231,6 +231,13 @@ button svg [fill='none'],
   color: $color-text;
 }
 
+// The wordmark's own size. The catch-all `* { font-size }` above reaches the SVG's <text> too, and a
+// CSS rule outranks the font-size="42" written on it, so the word was drawn at 16 units in a
+// 100-unit-high logo: a few pixels, next to a full-size A. In SVG user units, as the file means it.
+.logotype text {
+  font-size: 42px;
+}
+
 .popup-main .logotype {
   height: 2.5rem;
   margin: 0;
@@ -475,10 +482,16 @@ button,
   }
 }
 
-.text-help,
-.text-help * {
+.text-help {
   font-size: 0.8em;
   color: $color-text-muted;
+}
+// Inherit, not 0.8em again. The catch-all `* { font-size }` has to be overridden inside help text,
+// but 0.8em on a child is 0.8 of its parent's 0.8em, so a link or <code> in a help line came out
+// smaller than the sentence around it — "Import it in the options page" in the popup.
+.text-help * {
+  font-size: inherit;
+  color: inherit;
 }
 
 /* ---- Utility classes ---- */
