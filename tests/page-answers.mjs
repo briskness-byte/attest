@@ -150,12 +150,13 @@ await b.click(await b.el('xpath', "//div[@class='profile-actions']/button[contai
 await b.wait(300);
 await b.type(await b.el('css selector', '.import-modal textarea'), JSON.stringify({
   privateKey: sk, name: 'qa', relays: {},
-  permissions: { [granted]: { condition: 'forever', level: 20, created_at: Math.floor(Date.now() / 1000), decision: 'allow' } }
+  // Keyed on the origin, as permissions are since 1.25.0.
+  permissions: { [`http://${granted}`]: { condition: 'forever', level: 20, created_at: Math.floor(Date.now() / 1000), decision: 'allow' } }
 }));
 await b.click(await b.el('css selector', '.import-modal button'));
 await b.wait(1500);
 ok('a profile with a grant for the test page is in place',
-   !!(await b.el('css selector', `button[data-domain="${granted}"]`)));
+   !!(await b.el('css selector', `button[data-domain="http://${granted}"]`)));
 
 console.log('\n=== the page still gets its own answers ===');
 const own = await run(`http://${granted}/?p=pubkey`);

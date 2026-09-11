@@ -71,7 +71,7 @@ const outdir = await loadBackground();
 
 const PRIVATE_KEY = '5c0c523f52a5b6fad39ed2403092df8cebc36318b39383bca6c00808626fab3a';
 const PUBLIC_KEY = getPublicKey(Buffer.from(PRIVATE_KEY, 'hex'));
-const HOST = 'example.com';
+const HOST = 'https://example.com'; // an origin, as the content script sends since 1.25.0
 
 /**
  * A wallet with a key, no PIN, and no permission granted to anyone yet — so every call prompts.

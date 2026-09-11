@@ -53,9 +53,10 @@ const sk1 = '11'.repeat(32);
 const pub1 = getPublicKey(hex(sk1));
 const sk2 = '22'.repeat(32);
 
-const granted = `127.0.0.1:${SITE}`; // granted from the start, revoked during the run
-const later = `localhost:${SITE}`;   // granted through a prompt while the options page is open
-const other = `127.0.0.1:${OTHER}`;  // only ever asks
+// Origins, since that is what permissions are keyed on (1.25.0) and what the prompt shows.
+const granted = `http://127.0.0.1:${SITE}`; // granted from the start, revoked during the run
+const later = `http://localhost:${SITE}`;   // granted through a prompt while the options page is open
+const other = `http://127.0.0.1:${OTHER}`;  // only ever asks
 
 const { ok, state } = reporter();
 const xpi = newestXpi();
@@ -67,7 +68,7 @@ const done = async () => { servers.forEach(s => s.close()); await b.finish(state
 
 /** What `origin` gets back for getPublicKey right now. */
 async function ask(origin) {
-  await b.goto(`http://${origin}/`);
+  await b.goto(`${origin}/`);
   const end = Date.now() + 20000;
   while (Date.now() < end) {
     const e = await b.el('css selector', '#out');

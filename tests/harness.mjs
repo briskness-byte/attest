@@ -60,6 +60,9 @@ export async function startBrowser({ gdPort, xpi }) {
     const gd = spawn(gecko, ['--port', String(gdPort), '--log', 'fatal', '--allow-system-access'],
         { stdio: 'ignore', env });
     gd.on('error', e => { console.log('✗ could not start geckodriver: ' + e.message); process.exit(1); });
+    // A suite that crashes never reaches finish(), and a driver left behind holds its port: the next
+    // run then talks to that one instead of its own. Kill it on any exit.
+    process.on('exit', () => { try { gd.kill(); } catch (e) {} });
 
     const wd = async (m, p, b) => (await fetch(`http://127.0.0.1:${gdPort}${p}`, {
         method: m, headers: { 'Content-Type': 'application/json' },
@@ -119,6 +122,8 @@ export async function startBrowser({ gdPort, xpi }) {
         click: e => wd('POST', `/session/${sid}/element/${e[EID]}/click`, {}),
         type: (e, text) => wd('POST', `/session/${sid}/element/${e[EID]}/value`, { text }),
         text: async e => (await wd('GET', `/session/${sid}/element/${e[EID]}/text`)).value,
+        // Whether the element is actually drawn, not merely present in the DOM.
+        displayed: async e => (await wd('GET', `/session/${sid}/element/${e[EID]}/displayed`)).value,
         elements: async (using, value) =>
             (await wd('POST', `/session/${sid}/elements`, { using, value })).value ?? [],
         // Windows and tabs. The prompt and PIN windows are opened by the extension, not by us, so
