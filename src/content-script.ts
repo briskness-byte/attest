@@ -29,6 +29,37 @@ const CALLABLE_FROM_PAGE = new Set([
   'nip44.decrypt'
 ]);
 
+/**
+ * The key a site's permissions are stored under: its origin, scheme included.
+ *
+ * It used to be `location.host`, which has no scheme, so a grant made on https://example.com was
+ * honoured on http://example.com for anybody able to serve that. A page with no origin of its own —
+ * a local file, or a page its server sandboxed — has the origin "null", which every such page
+ * shares, so it is sent as its address instead. The background never remembers an answer for those.
+ *
+ * `window.origin`, not `location.origin`. The second is worked out from the address, so a page that
+ * https://example.com serves sandboxed still reports https://example.com through it — and used that
+ * site's grants. The first is the origin the document really has.
+ */
+function permissionKey(): string {
+  if (window.origin !== 'null') return window.origin;
+  const address = location.href.split('#')[0];
+  return location.protocol === 'file:' ? address : `sandboxed:${address}`;
+}
+
+/**
+ * Answer the page. Addressed to its origin, except that an opaque origin cannot be named: posting
+ * to "null" throws, which is why every request from a local file or a sandboxed page used to hang
+ * without an answer. '*' is safe there because the post goes to this window only, and if the page
+ * has navigated away this script's context has already been torn down with it.
+ */
+function reply(message: MessageEvent, response: unknown) {
+  window.postMessage(
+    { id: message.data.id, ext: EXTENSION_CODE, response },
+    message.origin === 'null' ? '*' : message.origin
+  );
+}
+
 //#region Nostr link handler
 let linkHandlerTemplate = '';
 let handlersAttached = false;
@@ -122,14 +153,7 @@ window.addEventListener('message', async message => {
   // Answer rather than ignore: a caller that gets nothing back waits on a promise forever, and an
   // honest one deserves to be told it asked for something that is not on offer.
   if (!CALLABLE_FROM_PAGE.has(message.data.type)) {
-    window.postMessage(
-      {
-        id: message.data.id,
-        ext: EXTENSION_CODE,
-        response: { error: { message: `${message.data.type} is not callable from a page` } }
-      },
-      message.origin
-    );
+    reply(message, { error: { message: `${message.data.type} is not callable from a page` } });
     return;
   }
 
@@ -139,7 +163,7 @@ window.addEventListener('message', async message => {
     response = await browser.runtime.sendMessage({
       type: message.data.type,
       params: message.data.params,
-      host: location.host
+      host: permissionKey()
     });
   } catch (error) {
     console.error('Error from calling extension.', error);
@@ -148,9 +172,5 @@ window.addEventListener('message', async message => {
     response = { error: { message: error?.message ?? String(error) } };
   }
 
-  // return response
-  window.postMessage(
-    { id: message.data.id, ext: EXTENSION_CODE, response },
-    message.origin
-  );
+  reply(message, response);
 });

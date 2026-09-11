@@ -16,6 +16,7 @@ import {
   isPrivateKeyEncrypted,
   derivePublicKeyFromPrivateKey,
   canDerivePublicKeyFromPrivateKey,
+  migratePermissionKeys,
   shouldRemoveStoredPermission
 } from './common';
 import { encryptPrivateKey, decryptPrivateKey } from './pinEncryption';
@@ -509,6 +510,33 @@ export async function removePermissions(
   // update the profile
   profile.permissions = permissions;
   return updateProfile(profile, profilePublicKey);
+}
+
+/**
+ * Moves every stored permission from its bare host to an origin. Runs once: the flag it leaves
+ * behind makes every later call a no-op, and it is idempotent besides.
+ *
+ * Before 1.25.0 permissions were keyed on `location.host`, which carries no scheme, so a grant made
+ * on https://example.com was honoured on http://example.com — and anybody able to put a user on the
+ * plain-http version inherited it, signing and decrypting included.
+ */
+export async function migratePermissionsToOrigins(): Promise<void> {
+  const data = await browser.storage.local.get([
+    ConfigurationKeys.PROFILES,
+    ConfigurationKeys.PERMISSIONS_KEYED_BY
+  ]);
+  if (data[ConfigurationKeys.PERMISSIONS_KEYED_BY] === 'origin') return;
+
+  const profiles = data[ConfigurationKeys.PROFILES] as ProfilesConfig | undefined;
+  for (const profile of Object.values(profiles ?? {})) {
+    if (profile.permissions) profile.permissions = migratePermissionKeys(profile.permissions);
+  }
+  // One write, profiles and flag together, so a browser closed halfway cannot leave one without
+  // the other.
+  await browser.storage.local.set({
+    ...(profiles ? { [ConfigurationKeys.PROFILES]: profiles } : {}),
+    [ConfigurationKeys.PERMISSIONS_KEYED_BY]: 'origin'
+  });
 }
 
 //#region Profiles >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>

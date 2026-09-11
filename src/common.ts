@@ -182,6 +182,60 @@ export function resolveStoredPermission(
   return entry.level >= requiredLevel ? 'allow' : 'ask';
 }
 
+/**
+ * Whether an answer may be remembered under this permission key.
+ *
+ * Keys are origins — `https://example.com`, scheme included, so a grant made over https says
+ * nothing about the same name over plain http — or `extension:<id>` for another add-on. Anything
+ * else is a page with no origin of its own: a local file, or a page its server sandboxed. All of
+ * those share the origin "null", so an answer remembered for one would be an answer for every file
+ * anybody downloads. They may still ask; their answers are never remembered.
+ */
+export function isRememberableKey(key: string | null | undefined): boolean {
+  return (
+    typeof key === 'string' && (/^https?:\/\/[^/\s]+$/.test(key) || key.startsWith('extension:'))
+  );
+}
+
+/**
+ * The origin a permission stored under a bare host (before 1.25.0) most likely came from.
+ *
+ * https, because that is almost certainly where the grant was made — and a wrong guess fails safe:
+ * the site asks again. The exceptions are addresses where plain http is normal and no network sits
+ * in between to exploit it: loopback, for local development, and .onion, which Tor encrypts
+ * already. Returns null for what cannot be carried over, such as the one key every local file
+ * shared.
+ */
+export function originForLegacyKey(key: string): string | null {
+  if (isRememberableKey(key)) return key;
+  if (!key || key === 'null' || key.includes('/')) return null;
+  const hostname = key
+    .replace(/:\d+$/, '')
+    .replace(/^\[(.*)\]$/, '$1')
+    .toLowerCase();
+  const plainHttp =
+    hostname === 'localhost' ||
+    hostname.endsWith('.localhost') ||
+    /^127\./.test(hostname) ||
+    hostname === '::1' ||
+    hostname.endsWith('.onion');
+  return `${plainHttp ? 'http' : 'https'}://${key}`;
+}
+
+/** A permissions map with every key moved to an origin; see originForLegacyKey. */
+export function migratePermissionKeys(permissions: PermissionConfig | undefined): PermissionConfig {
+  const out: PermissionConfig = {};
+  for (const [key, entry] of Object.entries(permissions ?? {})) {
+    const origin = originForLegacyKey(key);
+    if (!origin) continue;
+    // Two keys can only land on one origin if that origin was already stored; the newer one wins.
+    if (!out[origin] || (out[origin].created_at ?? 0) < (entry.created_at ?? 0)) {
+      out[origin] = entry;
+    }
+  }
+  return out;
+}
+
 /** Human-readable label for the options permissions table. */
 export function formatPermissionDecisionLabel(decision?: PermissionDecision): string {
   return decision === PermissionDecision.DENY ? 'deny' : 'allow';

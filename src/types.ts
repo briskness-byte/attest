@@ -41,7 +41,9 @@ export enum ConfigurationKeys {
   NOSTR_LINK_HANDLER_URL = 'nostr_link_handler_url',
   THEME = 'theme',
   SIGNER_ENABLED = 'signer_enabled',
-  KEY_BACKUP_PENDING = 'key_backup_pending'
+  KEY_BACKUP_PENDING = 'key_backup_pending',
+  /** 'origin' once stored permissions have been moved off bare hosts (1.25.0). */
+  PERMISSIONS_KEYED_BY = 'permissions_keyed_by'
 }
 
 export type RelaysConfig = {

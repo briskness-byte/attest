@@ -10,6 +10,7 @@ import {
   truncatePublicKeys,
   derivePublicKeyFromPrivateKey,
   customAuthorizationDurationSeconds,
+  isRememberableKey,
   type AuthorizationTimeUnit
 } from './common';
 import {
@@ -284,6 +285,10 @@ function Prompt() {
     return <div className="p-2">There is no action to authorize</div>;
   }
 
+  // Local files and sandboxed pages share the origin "null": a remembered answer for one would be
+  // an answer for all of them. So they get this-time-only buttons; the background enforces it too.
+  const rememberable = isRememberableKey(openPrompts[activePromptIndex].host);
+
   return (
     <>
       {/* Close confirmation modal */}
@@ -345,15 +350,22 @@ function Prompt() {
             <li key={cap}>{cap}</li>
           ))}
         </ul>
+        {!rememberable && (
+          <p className="text-help">
+            This page has no address of its own — a local file, or a page served sandboxed — so
+            your answer applies to this request only and is not remembered.
+          </p>
+        )}
       </div>
       <div className="prompt-action-buttons">
         <button
           className="button"
           onClick={decisionHandler(PermissionDecision.ALLOW, AuthorizationCondition.FOREVER)}
+          hidden={!rememberable}
         >
           <ShieldCheckmarkIcon /> Authorize forever
         </button>
-        {openPrompts[activePromptIndex].level < MAX_PERMISSION_LEVEL && (
+        {rememberable && openPrompts[activePromptIndex].level < MAX_PERMISSION_LEVEL && (
           <button
             className="button"
             onClick={handleAuthorizeEverything}
@@ -362,7 +374,7 @@ function Prompt() {
             <ShieldCheckmarkIcon /> Authorize everything from this site
           </button>
         )}
-        <div className="button-group">
+        <div className="button-group" hidden={!rememberable}>
           <button
             className="button"
             onClick={decisionHandler(PermissionDecision.ALLOW, AuthorizationCondition.EXPIRABLE_5M)}
@@ -404,10 +416,11 @@ function Prompt() {
         <button
           className="button button-danger"
           onClick={decisionHandler(PermissionDecision.DENY, AuthorizationCondition.FOREVER)}
+          hidden={!rememberable}
         >
           <CloseCircleIcon /> Reject forever
         </button>
-        <div className="button-group">
+        <div className="button-group" hidden={!rememberable}>
           <button
             className="button button-danger"
             onClick={decisionHandler(PermissionDecision.DENY, AuthorizationCondition.EXPIRABLE_5M)}

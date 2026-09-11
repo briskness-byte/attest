@@ -22,6 +22,7 @@ import {
   openPopupWindow,
   derivePublicKeyFromPrivateKey,
   normalizeCustomAuthorizationDurationSeconds,
+  isRememberableKey,
   resolveStoredPermission
 } from './common';
 import { LRUCache } from './LRUCache';
@@ -33,7 +34,7 @@ import { clearUint8Array, clearStringReference } from './memoryUtils';
 /** Map to keep track of open prompts so we can properly capture the responses and close them */
 const openPromptMap: Record<
   string,
-  { id: string; windowId?: number; resolve: Function; reject: Function }
+  { id: string; host: string; windowId?: number; resolve: Function; reject: Function }
 > = {};
 
 /**
@@ -47,6 +48,14 @@ const pinPromptMap: Record<
   string,
   { id: string; windowId?: number; resolve: Function; reject: Function; mode: string }
 > = {};
+
+/**
+ * Stored permissions move from bare hosts to origins once, when this version first runs. Requests
+ * wait for it: a grant written while the move is half done would be lost in its single write.
+ */
+const permissionsReady = Storage.migratePermissionsToOrigins().catch(error =>
+  console.error('Could not move stored permissions to origins.', error)
+);
 
 /** Handlers that must never answer something living in a tab. */
 const EXTENSION_PAGES_ONLY = new Set([
@@ -282,6 +291,8 @@ async function handleContentScriptMessage({
   params,
   host
 }: ContentMessageArgs): Promise<ContentScriptMessageResponse> {
+  await permissionsReady;
+
   if (!(await Storage.isSignerEnabled())) {
     // the signer is switched off for every site, so don't even prompt
     return { error: { message: 'Attest is disabled' } };
@@ -291,7 +302,9 @@ async function handleContentScriptMessage({
   const insufficientPermissions = {
     error: { message: `Insufficient permissions, required ${requiredLevel}` }
   };
-  const storedPermission = (await Storage.readActivePermissions())[host];
+  const permissions = await Storage.readActivePermissions();
+  // Nothing is looked up for a page with no origin of its own; see isRememberableKey.
+  const storedPermission = isRememberableKey(host) ? permissions[host] : undefined;
 
   switch (resolveStoredPermission(storedPermission, requiredLevel)) {
     case 'allow':
@@ -390,7 +403,6 @@ async function handlePromptMessage(
   {
     id,
     condition,
-    host,
     level,
     durationSeconds,
     decision = PermissionDecision.ALLOW
@@ -405,6 +417,12 @@ async function handlePromptMessage(
     return;
   }
 
+  // The site this prompt was opened for, recorded when it was opened — not the `host` in the
+  // answer, which is whatever the answering page says it was.
+  const host = openPrompt.host;
+  // A page with no origin of its own may be allowed or refused, but only this once.
+  const remember = isRememberableKey(host);
+
   // a remembered denial resolves the pending call negatively, just like a plain rejection
   const isAllowed = decision === PermissionDecision.ALLOW;
 
@@ -416,7 +434,7 @@ async function handlePromptMessage(
       case AuthorizationCondition.EXPIRABLE_8H:
         if (level) {
           openPrompt.resolve?.(isAllowed);
-          Storage.addActivePermission(host ?? '', condition, level, decision);
+          if (remember) Storage.addActivePermission(host, condition, level, decision);
         } else {
           console.warn('No authorization level provided');
         }
@@ -425,7 +443,9 @@ async function handlePromptMessage(
         const normalizedSeconds = normalizeCustomAuthorizationDurationSeconds(durationSeconds);
         if (level && normalizedSeconds != null) {
           openPrompt.resolve?.(isAllowed);
-          Storage.addActivePermission(host ?? '', condition, level, decision, normalizedSeconds);
+          if (remember) {
+            Storage.addActivePermission(host, condition, level, decision, normalizedSeconds);
+          }
         } else {
           console.warn('Invalid custom authorization duration or missing level');
           openPrompt.resolve?.(false);
@@ -524,7 +544,7 @@ function promptPermission(host: string, level: number, params: PromptParams): Pr
   return new Promise((resolve, reject) => {
     // Registered before there is a window, on purpose: two requests arriving in the same tick both
     // used to find an empty map and both open a popup of their own. The second one now sees this.
-    openPromptMap[id] = { id, resolve, reject };
+    openPromptMap[id] = { id, host, resolve, reject };
 
     const inFlight = Object.values(openPromptMap).find(({ windowId }) => windowId != null);
     if (inFlight) console.debug('There is already a prompt popup window open.');

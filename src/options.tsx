@@ -31,7 +31,8 @@ import {
   formatPrivateKeyForDisplay,
   validatePrivateKeyFormat,
   formatPermissionConditionLabel,
-  formatPermissionDecisionLabel
+  formatPermissionDecisionLabel,
+  migratePermissionKeys
 } from './common';
 // The SVG rather than the PNG: its wordmark is drawn in currentColor, so it follows the
 // theme. The PNG has near-black lettering baked in, which on the dark background came out
@@ -386,6 +387,9 @@ function Options() {
       showMessage(`The imported profile is invalid.`, 'warning');
       return;
     }
+    // A profile exported before 1.25.0 keys its permissions on bare hosts. They are moved to
+    // origins the same way stored ones were, or they would sit in the table matching nothing.
+    newProfile.permissions = migratePermissionKeys(newProfile.permissions);
 
     // Determine public key before storing
     const pinEnabled = await Storage.isPinEnabled();
@@ -990,7 +994,7 @@ function Options() {
               <table>
                 <thead>
                   <tr>
-                    <th>Domain</th>
+                    <th>Site</th>
                     <th>Decision</th>
                     <th>Permissions</th>
                     <th>Condition</th>
