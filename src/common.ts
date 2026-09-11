@@ -344,16 +344,25 @@ export function isValidNostrLinkHandlerTemplate(template: string): boolean {
   const trimmed = template.trim();
   if (!trimmed) return true;
   if (!trimmed.includes('%s')) return false;
+  return isWebAddress(trimmed.replace('%s', 'npub1test'));
+}
 
+/**
+ * http or https, and nothing else. A handler template is typed in by the user, but a javascript:
+ * or data: one would run on whatever page a nostr: link was clicked on.
+ */
+function isWebAddress(address: string): boolean {
   try {
-    new URL(trimmed.replace('%s', 'npub1test'));
-    return true;
+    return /^https?:$/.test(new URL(address).protocol);
   } catch {
     return false;
   }
 }
 
-/** Builds the destination URL from a template and a nostr: href. */
+/**
+ * Builds the destination URL from a template and a nostr: href. Checked again here, not only when
+ * the template is saved, so a template stored before that rule existed cannot slip past it.
+ */
 export function buildNostrLinkUrl(template: string, nostrHref: string): string | null {
   const colonIndex = nostrHref.indexOf(':');
   if (colonIndex === -1) return null;
@@ -361,7 +370,19 @@ export function buildNostrLinkUrl(template: string, nostrHref: string): string |
   const payload = nostrHref.slice(colonIndex + 1);
   if (!payload) return null;
 
-  return template.replace('%s', encodeURIComponent(payload));
+  const destination = template.replace('%s', encodeURIComponent(payload));
+  return isWebAddress(destination) ? destination : null;
+}
+
+/**
+ * Where the ext+nostr: protocol handler page should go, from its own query string. URLSearchParams
+ * has already decoded `uri`; decoding it a second time turned any % in a link into an exception and
+ * left a blank tab.
+ */
+export function handlerDestination(template: string, search: string): string | null {
+  const uri = new URLSearchParams(search).get('uri');
+  if (!template.trim() || !uri) return null;
+  return buildNostrLinkUrl(template, uri);
 }
 
 export function isHexadecimal(value: string) {
