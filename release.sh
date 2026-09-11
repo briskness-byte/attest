@@ -67,7 +67,7 @@ ls -1sh var/releases/
 # security-boundary checked code that had already shipped and passed whatever src/ now said.
 if [ "${SKIP_TESTS:-0}" != "1" ]; then
     echo "running tests"
-    for t in prompt-window copy-key external-callers security-boundary page-answers; do
+    for t in prompt-window copy-key external-callers security-boundary page-answers extension-pages; do
         node "tests/$t.mjs" || { echo "! tests/$t.mjs failed — not committing or tagging"; exit 1; }
     done
     echo

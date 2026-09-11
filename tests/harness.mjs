@@ -119,6 +119,18 @@ export async function startBrowser({ gdPort, xpi }) {
         click: e => wd('POST', `/session/${sid}/element/${e[EID]}/click`, {}),
         type: (e, text) => wd('POST', `/session/${sid}/element/${e[EID]}/value`, { text }),
         text: async e => (await wd('GET', `/session/${sid}/element/${e[EID]}/text`)).value,
+        elements: async (using, value) =>
+            (await wd('POST', `/session/${sid}/elements`, { using, value })).value ?? [],
+        // Windows and tabs. The prompt and PIN windows are opened by the extension, not by us, so
+        // this is how a suite gets into them.
+        handles: async () => (await wd('GET', `/session/${sid}/window/handles`)).value,
+        window: async () => (await wd('GET', `/session/${sid}/window`)).value,
+        switchTo: handle => wd('POST', `/session/${sid}/window`, { handle }),
+        newTab: async () => (await wd('POST', `/session/${sid}/window/new`, { type: 'tab' })).value.handle,
+        // window.confirm(). Accepting or dismissing has to be the very next command after the one
+        // that opened it; anything else and WebDriver dismisses it on its own.
+        acceptAlert: () => wd('POST', `/session/${sid}/alert/accept`, {}),
+        dismissAlert: () => wd('POST', `/session/${sid}/alert/dismiss`, {}),
         goto: url => wd('POST', `/session/${sid}/url`, { url }),
         url: async () => (await wd('GET', `/session/${sid}/url`)).value,
         js: async code => (await wd('POST', `/session/${sid}/execute/sync`,
