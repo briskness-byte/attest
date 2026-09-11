@@ -170,6 +170,13 @@ body {
   background-color: $background-color;
 }
 
+// The `hidden` attribute, honoured. Author rules such as `button { display: flex }` outrank the
+// browser's own [hidden] rule, so a hidden button or form row was still drawn — the PIN field in
+// the copy window among them.
+[hidden] {
+  display: none !important;
+}
+
 h2 {
   font-size: 1.5em;
 }
