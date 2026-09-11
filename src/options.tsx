@@ -501,6 +501,17 @@ function Options() {
 
   async function handleDeleteProfileClick(e) {
     e.preventDefault();
+    // A "(new profile)" that was never saved has nothing in storage and no public key. Delete named
+    // it for the confirmation by the npub of an empty key — a string that belongs to nobody — and
+    // asked whether to delete that. There is nothing to delete; discarding it is all this means.
+    if (!selectedProfilePubKey) {
+      const { ['']: _unsaved, ...saved } = profiles;
+      setProfiles(saved);
+      setPrivateKey('');
+      setRelays([]);
+      setSelectedProfilePubKey(Object.keys(saved)[0] ?? '');
+      return;
+    }
     if (window.confirm(`Delete the profile "${nip19.npubEncode(selectedProfilePubKey)}"?`)) {
       const updatedProfiles = await Storage.deleteProfile(selectedProfilePubKey);
       setProfiles({ ...updatedProfiles });
