@@ -35,17 +35,6 @@ for f in ('src/manifest.json', 'package.json'):
     p.write_text(json.dumps(d, indent=2) + '\n')
 PY
 
-# The boundary between a web page and the background has been wrong twice, in opposite
-# directions, and neither failure showed a symptom. Nothing ships without checking it.
-if [ "${SKIP_TESTS:-0}" != "1" ]; then
-    echo "running tests"
-    node tests/prompt-window.mjs || { echo "! tests failed — not building"; exit 1; }
-    node tests/copy-key.mjs || { echo "! tests failed — not building"; exit 1; }
-    node tests/external-callers.mjs || { echo "! tests failed — not building"; exit 1; }
-    node tests/security-boundary.mjs || { echo "! tests failed — not building"; exit 1; }
-    echo
-fi
-
 echo "building $NEW"
 yarn run build >/dev/null 2>&1 || { echo "! build failed"; exit 1; }
 
@@ -69,6 +58,20 @@ print(f"  update_url {g.get('update_url','MISSING')}")
 PY
 
 ls -1sh var/releases/
+
+# The boundary between a web page and the background has been wrong twice, in opposite
+# directions, and neither failure showed a symptom. Nothing ships without checking it.
+#
+# After the build, not before. The browser suites install the newest package in var/releases, and
+# until this run has built one, that is the previous release: for as long as the tests ran first,
+# security-boundary checked code that had already shipped and passed whatever src/ now said.
+if [ "${SKIP_TESTS:-0}" != "1" ]; then
+    echo "running tests"
+    for t in prompt-window copy-key external-callers security-boundary page-answers; do
+        node "tests/$t.mjs" || { echo "! tests/$t.mjs failed — not committing or tagging"; exit 1; }
+    done
+    echo
+fi
 
 # Commit and tag here rather than leaving it to be remembered. The bump was forgotten three times
 # in a day, and each time the next run refused to build until it was found — but worse, a tag is

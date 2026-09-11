@@ -17,6 +17,8 @@ export const ROOT = path.resolve(HERE, '..');
 
 /** The newest built package, so a run always tests what was last built rather than a stale file. */
 export function newestXpi() {
+    // To test the working tree without cutting a release: zip dist/ somewhere and point this at it.
+    if (process.env.QA_XPI) return path.resolve(process.env.QA_XPI);
     const dir = path.join(ROOT, 'var/releases');
     const files = fs.existsSync(dir)
         ? fs.readdirSync(dir).filter(f => f.endsWith('.xpi')).map(f => path.join(dir, f))
@@ -52,7 +54,11 @@ export async function startBrowser({ gdPort, xpi }) {
     const env = { ...process.env, HOME: path.join(W, 'home'), TMPDIR: W };
 
     const gecko = process.env.GECKODRIVER || path.join(os.homedir(), 'tools/geckodriver');
-    const gd = spawn(gecko, ['--port', String(gdPort), '--log', 'fatal'], { stdio: 'ignore', env });
+    // --allow-system-access: since Firefox ~138 chrome-context scripts run with a null principal
+    // without it, and the extension's address below cannot be read. It has to be given here — Firefox
+    // refuses it through capabilities. Needs geckodriver 0.36 or later.
+    const gd = spawn(gecko, ['--port', String(gdPort), '--log', 'fatal', '--allow-system-access'],
+        { stdio: 'ignore', env });
     gd.on('error', e => { console.log('✗ could not start geckodriver: ' + e.message); process.exit(1); });
 
     const wd = async (m, p, b) => (await fetch(`http://127.0.0.1:${gdPort}${p}`, {
@@ -87,13 +93,32 @@ export async function startBrowser({ gdPort, xpi }) {
     };
 
     // The internal address is random per profile, so the extension's own pages cannot be reached
-    // without asking Firefox what it assigned. This is the only way in from outside, and without it
-    // half of what this suite checks — that the extension can still talk to itself — is untestable.
+    // without asking Firefox what it assigned. This only answers when geckodriver runs with
+    // --allow-system-access (above); without it this came back as an error object on every run, and
+    // `base` was quietly nonsense.
     const host = await chrome(
         `return WebExtensionPolicy.getByID(${JSON.stringify(ADDON_ID)})?.mozExtensionHostname ?? null;`);
+    const base = typeof host === 'string' ? `moz-extension://${host}/` : null;
+
+    const EID = 'element-6066-11e4-a52e-4f735466cecf';
+    const el = async (using, value) => {
+        const r = (await wd('POST', `/session/${sid}/element`, { using, value })).value;
+        return r && !r.error ? r : null;
+    };
 
     return {
-        base: host ? `moz-extension://${host}/` : null,
+        base,
+        // WebDriver refuses to navigate to moz-extension:// at all ("not allowed in this context"),
+        // so the browser chrome opens the page in the current tab instead.
+        openExt: async page => {
+            if (!base) throw new Error('the extension address is unknown');
+            await chrome(`openTrustedLinkIn(${JSON.stringify(base + page)}, 'current'); return true;`);
+            await new Promise(r => setTimeout(r, 1500));
+        },
+        el,
+        click: e => wd('POST', `/session/${sid}/element/${e[EID]}/click`, {}),
+        type: (e, text) => wd('POST', `/session/${sid}/element/${e[EID]}/value`, { text }),
+        text: async e => (await wd('GET', `/session/${sid}/element/${e[EID]}/text`)).value,
         goto: url => wd('POST', `/session/${sid}/url`, { url }),
         url: async () => (await wd('GET', `/session/${sid}/url`)).value,
         js: async code => (await wd('POST', `/session/${sid}/execute/sync`,
