@@ -157,6 +157,14 @@ body {
   font-family: $font-family;
   font-size: $font-size;
   color: $color-text;
+}
+
+// The page, not every element. Written on `*` it painted a box of page colour behind every icon:
+// an <svg> takes a background like any other element, so each one inside a button was a white
+// square in the light palette and a near-black one in the dark. Everything else is transparent by
+// default and shows this through; the few things that are not — modals, textareas — say so below.
+html,
+body {
   // Was never set. Fine while the only palette was a light one; in a dark theme it left light text
   // on the browser's white default, which is the state where you can read nothing at all.
   background-color: $background-color;
@@ -249,6 +257,12 @@ select {
     display: inline-block;
     height: 1em;
     margin: 0 0.2em 0 0.2em;
+  }
+  // The icon's shapes take their colour from `*`, i.e. the page text colour, not from the alert
+  // they sit in. On the success fill that is near-white on bright green in the dark palette.
+  svg,
+  svg * {
+    color: inherit;
   }
 
   &.warning {
@@ -531,7 +545,7 @@ button,
 
   .modal {
     z-index: 1001;
-    background-color: #ffffff;
+    background-color: $background-color;
     align-self: center;
     padding: 1em;
     border-radius: $button-radius;
@@ -557,6 +571,7 @@ label {
 }
 
 input,
+textarea,
 .input,
 .pubkey-show {
   border: 2px solid $color-primary;
@@ -990,7 +1005,7 @@ input,
 
     .close-confirm-dialog {
       width: 100%;
-      background-color: white;
+      background-color: $background-color;
       padding: 20px;
       border-top-left-radius: $radius-default;
       border-top-right-radius: $radius-default;
