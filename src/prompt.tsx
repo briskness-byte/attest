@@ -8,7 +8,6 @@ import {
   getAllowedCapabilities,
   MAX_PERMISSION_LEVEL,
   truncatePublicKeys,
-  derivePublicKeyFromPrivateKey,
   customAuthorizationDurationSeconds,
   isRememberableKey,
   type AuthorizationTimeUnit
@@ -51,9 +50,6 @@ function Prompt() {
     Math.max((openPrompts?.length ?? 0) - 1, 0)
   );
 
-  const [kindName, setKindName] = useState<string | null>(null);
-  const [kind, setKind] = useState<number | null>(null);
-
   const [showCloseConfirmation, setShowCloseConfirmation] = useState(false);
 
   const [customDurationAmount, setCustomDurationAmount] = useState<string>('1');
@@ -64,32 +60,17 @@ function Prompt() {
     null
   );
 
+  // The public key is the stored active one, not worked out from the private key. With protection on
+  // that key is encrypted, deriving from it threw, and the prompt never said which identity was
+  // about to sign — the one thing on this page a person most needs to check.
   useEffect(() => {
-    Storage.getActiveProfile().then(profile => {
-      setActiveProfile(profile);
-      const pubKey = derivePublicKeyFromPrivateKey(profile.privateKey);
-      setActivePubKeyNIP19(nip19.npubEncode(pubKey));
-    });
-  }, []);
-
-  /** Pepare params of event */
-  useEffect(() => {
-    try {
-      if (openPrompts?.[activePromptIndex]?.params) {
-        const params = openPrompts[activePromptIndex].params;
-        if (params.event) {
-          setKind(params.event.kind);
-          setKindName(getKindDescription(params.event.kind));
-        } else {
-          console.warn('params.event is not defined');
-        }
-      } else {
-        console.error('Param is null');
+    Promise.all([Storage.getActiveProfile(), Storage.getActivePublicKey()]).then(
+      ([profile, publicKey]) => {
+        setActiveProfile(profile);
+        if (publicKey) setActivePubKeyNIP19(nip19.npubEncode(publicKey));
       }
-    } catch (err) {
-      console.error('Error parsing params.', err);
-    }
-  }, [activePromptIndex, openPrompts]);
+    );
+  }, []);
 
   useEffect(() => {
     setCustomDurationError('');
@@ -288,6 +269,7 @@ function Prompt() {
   // Local files and sandboxed pages share the origin "null": a remembered answer for one would be
   // an answer for all of them. So they get this-time-only buttons; the background enforces it too.
   const rememberable = isRememberableKey(openPrompts[activePromptIndex].host);
+  const currentEvent = openPrompts[activePromptIndex].params?.event;
 
   return (
     <>
@@ -336,14 +318,21 @@ function Prompt() {
           <strong>
             {activeProfile && (
               <span>
-                {activeProfile.name} ({truncatePublicKeys(activePubKeyNIP19, 10, 10)})
+                {activeProfile.name ? `${activeProfile.name} ` : ''}({truncatePublicKeys(activePubKeyNIP19, 10, 10)})
               </span>
             )}
           </strong>
         </p>
-        <p>
-          Event: <span className="badge">{kindName ?? `(not recognized. Kind: ${kind})`}</span>
-        </p>
+        {/* Only a request that carries an event has a kind. For the others this line said
+            "(not recognized. Kind: null)", or the kind of whichever prompt was shown before. */}
+        {currentEvent && (
+          <p>
+            Event:{' '}
+            <span className="badge">
+              {getKindDescription(currentEvent.kind) ?? `kind ${currentEvent.kind} (not recognized)`}
+            </span>
+          </p>
+        )}
         <p>is requesting your permission to:</p>
         <ul className="prompt-requests">
           {getAllowedCapabilities(openPrompts[activePromptIndex].level).map(cap => (
