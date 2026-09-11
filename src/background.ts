@@ -27,7 +27,6 @@ import {
   resolveStoredPermission,
   secretProblem
 } from './common';
-import { LRUCache } from './LRUCache';
 import PromptManager from './PromptManager';
 import { getCachedPin, setCachedPin, clearCachedPin } from './pinCache';
 import { decryptPrivateKey, encryptPrivateKey } from './pinEncryption';
@@ -155,6 +154,12 @@ browser.runtime.onMessage.addListener(async (message, sender) => {
   let { prompt } = message as PromptResponse;
 
   if (prompt) {
+    // An answer to a permission prompt, which only the prompt page gives. The content script cannot
+    // send one today — it does not copy `prompt` across — but that is the same kind of accident the
+    // PIN handlers once relied on, so it is refused here as well.
+    if (!fromOwnPage(sender)) {
+      return { error: { message: 'not available to pages' } };
+    }
     handlePromptMessage(message as PromptResponse, sender);
   } else {
     return handleContentScriptMessage(message as ContentMessageArgs);
@@ -300,6 +305,12 @@ async function handleContentScriptMessage({
     return { error: { message: 'Attest is disabled' } };
   }
 
+  // Only the methods there are. An unknown one used to get a prompt that listed every capability,
+  // and answering it with a remembered decision never settled the call.
+  if (!Object.prototype.hasOwnProperty.call(PERMISSIONS_REQUIRED, type)) {
+    return { error: { message: `unknown method "${type}"` } };
+  }
+
   const requiredLevel = PERMISSIONS_REQUIRED[type];
   const insufficientPermissions = {
     error: { message: `Insufficient permissions, required ${requiredLevel}` }
@@ -327,6 +338,17 @@ async function handleContentScriptMessage({
         return { error: { message: error.message } };
       }
       break;
+  }
+
+  // Neither of these needs the private key: the public key is stored as the active one, and the
+  // relays sit on the profile. Decrypting for them meant a PIN prompt for a question with no secret
+  // in it.
+  if (type === 'getPublicKey') {
+    const stored = await Storage.getActivePublicKey();
+    if (stored) return stored;
+  }
+  if (type === 'getRelays') {
+    return (await Storage.readActiveRelays()) || {};
   }
 
   // Get decrypted private key (handles PIN protection automatically)
@@ -390,7 +412,7 @@ async function handleContentScriptMessage({
         return nip44.v2.decrypt(ciphertext as string, key);
       }
       default: {
-        return { error: { message: `Uunknown type "${type}"` } };
+        return { error: { message: `unknown method "${type}"` } };
       }
     }
   } catch (error) {
@@ -465,8 +487,8 @@ async function handlePromptMessage(
     // remove the prompt from the map
     delete openPromptMap[id];
 
-    // close prompt
-    if (sender) {
+    // close prompt — only a page that lives in a window has a window to close
+    if (sender?.tab) {
       const openPrompts = await PromptManager.get();
 
       // only close the prompt window if there is no other prompt pending
@@ -868,21 +890,14 @@ async function handlePinMessage(
   }
 }
 
-// prepare a cache of the last 100 shared keys used
-const secretsCache = new LRUCache<string, Uint8Array>(100);
-let previousSk: Uint8Array | null = null;
+/**
+ * The NIP-44 conversation key with `peer`.
+ *
+ * A cache used to sit in front of this, and it never held anything: it was cleared whenever `sk`
+ * differed from a variable nothing ever assigned, which was every call. It is gone rather than
+ * repaired — `sk` is a fresh array for every request, so a "same key" check by reference could never
+ * have matched, and a cache of conversation keys is a cache of secrets.
+ */
 function getSharedSecret(sk: Uint8Array, peer: string) {
-  // Detect a private key change and erase the cache if they changed their key
-  if (previousSk !== sk) {
-    secretsCache.clear();
-  }
-
-  let key = secretsCache.get(peer);
-
-  if (!key) {
-    key = nip44.v2.utils.getConversationKey(sk, peer);
-    secretsCache.set(peer, key);
-  }
-
-  return key;
+  return nip44.v2.utils.getConversationKey(sk, peer);
 }
