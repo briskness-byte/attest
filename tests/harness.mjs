@@ -119,9 +119,18 @@ export async function startBrowser({ gdPort, xpi }) {
             await new Promise(r => setTimeout(r, 1500));
         },
         el,
-        click: e => wd('POST', `/session/${sid}/element/${e[EID]}/click`, {}),
-        type: (e, text) => wd('POST', `/session/${sid}/element/${e[EID]}/value`, { text }),
+        // A missing element answers like a WebDriver error instead of throwing. A suite that throws
+        // stops at the first thing it cannot find, and reports nothing after it; this way the checks
+        // that follow fail one by one and say what was missing.
+        click: e => e
+            ? wd('POST', `/session/${sid}/element/${e[EID]}/click`, {})
+            : Promise.resolve({ value: { error: 'no such element' } }),
+        type: (e, text) => e
+            ? wd('POST', `/session/${sid}/element/${e[EID]}/value`, { text })
+            : Promise.resolve({ value: { error: 'no such element' } }),
         text: async e => (await wd('GET', `/session/${sid}/element/${e[EID]}/text`)).value,
+        // Whether a checkbox or radio button is checked.
+        selected: async e => (await wd('GET', `/session/${sid}/element/${e[EID]}/selected`)).value,
         // Whether the element is actually drawn, not merely present in the DOM.
         displayed: async e => (await wd('GET', `/session/${sid}/element/${e[EID]}/displayed`)).value,
         elements: async (using, value) =>
