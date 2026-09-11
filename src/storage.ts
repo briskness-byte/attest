@@ -736,6 +736,33 @@ export async function updateProfile(
   return profiles;
 }
 /**
+ * Sets or clears a profile's name, and changes nothing else.
+ *
+ * Reads the profile here rather than taking one from the caller. The options page used to pass in
+ * the copy it loaded when it opened, and writing that back undid everything decided since: a site
+ * revoked on that page was answered again the moment the profile was renamed.
+ * @param publicKey - Public key of the profile to rename
+ * @param name - The new name, or undefined to remove it
+ * @returns The updated profiles configuration
+ */
+export async function renameProfile(
+  publicKey: string,
+  name: string | undefined
+): Promise<ProfilesConfig> {
+  const profiles = await readProfiles();
+  const profile = profiles[publicKey];
+  if (!profile) {
+    throw new Error(`There is no profile with the key '${publicKey}'`);
+  }
+  if (name) profile.name = name;
+  else delete profile.name;
+
+  await browser.storage.local.set({
+    [ConfigurationKeys.PROFILES]: profiles
+  });
+  return profiles;
+}
+/**
  * Deletes a profile and switches the active profile if the deleted one was active.
  * @param profilePublicKey - Public key of the profile to delete
  * @returns The updated profiles configuration

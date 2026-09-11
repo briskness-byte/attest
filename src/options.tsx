@@ -8,6 +8,7 @@ import { format, formatDistance } from 'date-fns';
 import { Alert, Modal } from './components';
 
 import {
+  ConfigurationKeys,
   PermissionConfig,
   PermissionDecision,
   ProfileConfig,
@@ -73,16 +74,9 @@ function Options() {
   let [relays, setRelays] = useState<RelayConfig[]>([]);
   let [newRelayURL, setNewRelayURL] = useState('');
   let [isNewRelayURLValid, setNewRelayURLValid] = useState(true);
-  let [permissions, setPermissions] = useState<
-    {
-      host: string;
-      level: number;
-      condition: string;
-      created_at: number;
-      duration_seconds?: number;
-      decision?: PermissionDecision;
-    }[]
-  >();
+  // Derived from the stored profile on every render, not kept as a copy. The copy was loaded once,
+  // so a revoked site stayed in this table — and anything written from it put the grant back.
+  const permissions = convertPermissionsToUIObject(profiles[selectedProfilePubKey]?.permissions);
   let [message, setMessage] = useState('');
   let [messageType, setMessageType] = useState('info');
 
@@ -114,6 +108,22 @@ function Options() {
         setSelectedProfilePubKey(selectedPubKey);
       }
     });
+  }, []);
+
+  /**
+   * Keep the profiles in step with storage. The background grants sites while this page is open,
+   * and a revoke is written by the storage layer, not here. Without this the page showed whatever
+   * it loaded when it opened. A "(new profile)" still being set up exists only on this page, so it is
+   * carried across.
+   */
+  useEffect(() => {
+    const listener = (changes: Record<string, browser.Storage.StorageChange>, area: string) => {
+      if (area !== 'local' || !changes[ConfigurationKeys.PROFILES]) return;
+      const fresh = (changes[ConfigurationKeys.PROFILES].newValue ?? {}) as ProfilesConfig;
+      setProfiles(current => ('' in current ? { ...fresh, '': current[''] } : fresh));
+    };
+    browser.storage.onChanged.addListener(listener);
+    return () => browser.storage.onChanged.removeListener(listener);
   }, []);
 
   /**
@@ -196,7 +206,6 @@ function Options() {
     setLoadingProfile(true);
     setProfileName(profile.name);
     setRelays(convertRelaysToUIArray(profile.relays));
-    setPermissions(convertPermissionsToUIObject(profile.permissions));
 
     // Always check current PIN status when loading profile
     const currentPinEnabled = await Storage.isPinEnabled();
@@ -205,10 +214,6 @@ function Options() {
 
     setLoadingProfile(false);
     console.log(`The profile for pubkey '${pubKey}' was loaded.`);
-  }
-
-  function reloadSelectedProfile() {
-    loadAndSelectProfile(selectedProfilePubKey);
   }
 
   // The private key field accepts hex or nsec, so anything reading it has to normalise the same
@@ -303,7 +308,6 @@ function Options() {
     setSelectedProfilePubKey('');
 
     setRelays([]);
-    setPermissions(undefined);
     setPrivateKey('');
   }
 
@@ -331,10 +335,11 @@ function Options() {
   }
   async function handleProfileRenameConfirm() {
     const profile = getSelectedProfile();
-    // if name didn't change, do nothing
-    if (profile && profileName != profile.name) {
-      profile.name = profileName?.trim() != '' ? profileName : undefined;
-      await Storage.updateProfile(profile, selectedProfilePubKey);
+    const name = profileName?.trim() || undefined;
+    // Only the name is written. This used to hand the storage layer this page's copy of the whole
+    // profile, loaded when the page opened, and a site revoked since was back the moment you renamed.
+    if (profile && name !== profile.name) {
+      await Storage.renameProfile(selectedProfilePubKey, name);
     }
     setRenameModalShown(false);
   }
@@ -342,8 +347,9 @@ function Options() {
     setRenameModalShown(false);
   }
 
-  function handleExportProfileClick() {
-    const profile = getSelectedProfile();
+  async function handleExportProfileClick() {
+    // From storage, so the export carries what is stored now rather than what this page last saw.
+    const profile = selectedProfilePubKey ? await Storage.getProfile(selectedProfilePubKey) : null;
     const profileJson = JSON.stringify(profile);
     setProfileExportJson(profileJson);
     setExportModalShown(true);
@@ -485,7 +491,6 @@ function Options() {
       if (remainingKeys.length === 0) {
         setSelectedProfilePubKey('');
         setRelays([]);
-        setPermissions(undefined);
         setPrivateKey('');
         return;
       }
@@ -495,10 +500,6 @@ function Options() {
         activePublicKey && activePublicKey in updatedProfiles ? activePublicKey : remainingKeys[0]
       );
     }
-  }
-
-  async function saveProfiles() {
-    await Storage.updateProfiles(profiles);
   }
 
   //#endregion Profiles
@@ -527,13 +528,25 @@ function Options() {
     }
 
     if (privateKeyIntArray) {
-      const privKeyNip19 = nip19.nsecEncode(privateKeyIntArray);
-      setPrivateKey(privKeyNip19);
-
-      // if new profile need to re-calculate pub key
       const hexPrivateKey = convertUint8ArrayToHex(privateKeyIntArray);
       const newPubKey = derivePublicKeyFromPrivateKey(hexPrivateKey);
-      profiles[newPubKey] = profiles[selectedProfilePubKey];
+
+      // Saving a key that already has a profile replaces that profile: its name, its relays, every
+      // site decision on it. Import has always asked first; this did it without a word.
+      const existing = (await Storage.readProfiles())[newPubKey];
+      if (
+        existing &&
+        !window.confirm(
+          `A profile with this key already exists (${
+            existing.name ? `"${existing.name}"` : nip19.npubEncode(newPubKey)
+          }). Saving replaces it, including its relays and site permissions. Continue?`
+        )
+      ) {
+        return;
+      }
+
+      setPrivateKey(nip19.nsecEncode(privateKeyIntArray));
+      let storedKey = hexPrivateKey;
 
       // If PIN protection is enabled, encrypt the private key before saving
       const pinEnabled = await Storage.isPinEnabled();
@@ -561,21 +574,19 @@ function Options() {
           }
 
           // Use the encrypted key
-          profiles[newPubKey].privateKey = encryptResponse.encryptedKey;
+          storedKey = encryptResponse.encryptedKey;
         } catch (error) {
           console.error('Error encrypting private key:', error);
           showMessage('Failed to encrypt private key. ' + error.message, 'warning');
           return;
         }
-      } else {
-        // save the hex version in the profile (plain-text)
-        profiles[newPubKey].privateKey = hexPrivateKey;
       }
 
-      delete profiles[selectedProfilePubKey];
+      // Only the new profile is written. This used to save this page's copy of every profile, as
+      // loaded when the page opened, which put back any site revoked since — on every profile.
+      await Storage.addProfile({ privateKey: storedKey }, newPubKey);
+      setProfiles(await Storage.readProfiles());
       setSelectedProfilePubKey(newPubKey); // this re-loads the profile in the screen
-
-      await saveProfiles();
       showMessage('Saved private key!', 'success');
     } else {
       // Reached when the text passed the format check but would not decode. Saying "Saved" here
@@ -638,7 +649,6 @@ function Options() {
   //#region Permissions
 
   function convertPermissionsToUIObject(permissions?: PermissionConfig) {
-    console.debug('Converting permissions to UI', permissions);
     if (!permissions) return undefined;
 
     return Object.entries(permissions)
@@ -669,8 +679,8 @@ function Options() {
 
     if (window.confirm(question)) {
       await Storage.removePermissions(selectedProfilePubKey, host);
+      // The table follows storage on its own; reloading the profile here would also reset the relays.
       showMessage(isDenied ? `${host} can ask again` : `Removed permissions from ${host}`);
-      reloadSelectedProfile();
     }
   }
 

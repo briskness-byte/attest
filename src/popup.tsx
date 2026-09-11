@@ -167,12 +167,11 @@ function Popup() {
     const name = profileName.trim();
     if (!name || !publicKeyHexa) return;
 
-    const profile = profiles[publicKeyHexa];
-    if (!profile) return;
+    if (!profiles[publicKeyHexa]) return;
 
-    profile.name = name;
-    await Storage.updateProfile(profile, publicKeyHexa);
-    setProfiles({ ...profiles, [publicKeyHexa]: profile });
+    // Only the name, read fresh. Writing this popup's copy of the profile back would undo anything
+    // decided since it opened — a site granted, a site revoked.
+    setProfiles(await Storage.renameProfile(publicKeyHexa, name));
   }
 
   function goToOptionsPage() {
