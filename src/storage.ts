@@ -902,10 +902,20 @@ export async function getActiveProfile(): Promise<ProfileConfig> {
 //#endregion Profiles <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 
 /**
+ * Where the prompt queue lives: session storage, which is held in memory and never written to disk.
+ * The queue carries whole requests — the event about to be signed, the plaintext of a message about
+ * to be encrypted — and in storage.local every one of them went into the profile on disk. Local
+ * storage only where session storage does not exist.
+ */
+function promptQueueArea() {
+  return browser.storage.session ?? browser.storage.local;
+}
+
+/**
  * Reads the queue of open signing prompts from storage.
  */
 export async function readOpenPrompts(): Promise<OpenPromptItem[]> {
-  const openPromptsData = await browser.storage.local.get(ConfigurationKeys.OPEN_PROMPTS);
+  const openPromptsData = await promptQueueArea().get(ConfigurationKeys.OPEN_PROMPTS);
   // parse from JSON string
   const openPromptStr = (openPromptsData[ConfigurationKeys.OPEN_PROMPTS] ?? '[]') as string;
   return JSON.parse(openPromptStr) as OpenPromptItem[];
@@ -918,7 +928,7 @@ export async function readOpenPrompts(): Promise<OpenPromptItem[]> {
 export async function updateOpenPrompts(openPrompts: OpenPromptItem[]) {
   // stringify to JSON to make the change listeners fire (Firefox bug?)
   const openPromptsStr = JSON.stringify(openPrompts);
-  await browser.storage.local.set({
+  await promptQueueArea().set({
     [ConfigurationKeys.OPEN_PROMPTS]: openPromptsStr
   });
 
@@ -955,10 +965,13 @@ export async function empty(): Promise<void> {
 
 /** Removes legacy storage keys that are no longer used. */
 async function clearUnused(): Promise<void> {
-  return await browser.storage.local.remove([
+  const unused: string[] = [
     'relays', // no longer used
     'permissions' // no longer used
-  ]);
+  ];
+  // The prompt queue moved to session storage; a copy an older version left on disk goes.
+  if (browser.storage.session) unused.push(ConfigurationKeys.OPEN_PROMPTS);
+  return await browser.storage.local.remove(unused);
 }
 
 // clear unused
