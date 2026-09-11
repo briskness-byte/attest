@@ -10,6 +10,7 @@ import {
   ProfileConfig,
   ProfilesConfig,
   RelaysConfig,
+  PermissionEntry,
   SecretKind
 } from './types';
 import {
@@ -18,7 +19,9 @@ import {
   derivePublicKeyFromPrivateKey,
   canDerivePublicKeyFromPrivateKey,
   migratePermissionKeys,
-  shouldRemoveStoredPermission
+  shouldRemoveStoredPermission,
+  entriesOf,
+  byLevel
 } from './common';
 import { encryptPrivateKey, decryptPrivateKey } from './pinEncryption';
 import { clearStringReference } from './memoryUtils';
@@ -419,34 +422,30 @@ export async function updateRelays(
 }
 
 /**
- * Reads permissions for the active profile, removing any that have expired.
- * Persists the pruned list when expired entries are removed.
+ * Reads permissions for the active profile, dropping every decision that has run out, and persists
+ * the result when anything was dropped. Each site's decisions come back keyed by level, whatever
+ * shape they were stored in.
  */
 export async function readActivePermissions(): Promise<PermissionConfig> {
   const activeProfile = await getActiveProfile();
 
-  let permissions = activeProfile.permissions;
+  const stored = activeProfile.permissions;
   // if no permissions defined, return empty
-  if (!permissions) {
+  if (!stored) {
     return {};
   }
 
-  // delete expired
-  var needsUpdate = false;
+  // One decision can run out while another on the same site stands, so this goes entry by entry.
+  const permissions: PermissionConfig = {};
+  let needsUpdate = false;
   const nowSeconds = Math.round(Date.now() / 1000);
-  for (let host in permissions) {
-    const perm = permissions[host];
-    if (
-      shouldRemoveStoredPermission(
-        perm.condition,
-        perm.created_at,
-        nowSeconds,
-        perm.duration_seconds
-      )
-    ) {
-      delete permissions[host];
-      needsUpdate = true;
-    }
+  for (const host in stored) {
+    const entries = entriesOf(stored[host]);
+    const live = entries.filter(
+      e => !shouldRemoveStoredPermission(e.condition, e.created_at, nowSeconds, e.duration_seconds)
+    );
+    if (live.length !== entries.length) needsUpdate = true;
+    if (live.length) permissions[host] = byLevel(live);
   }
   if (needsUpdate) {
     // Create a new profile object with only the permissions updated
@@ -465,7 +464,13 @@ export async function readActivePermissions(): Promise<PermissionConfig> {
   return permissions;
 }
 /**
- * Remembers a site decision on the active profile, replacing any previous one for that host.
+ * Remembers a decision about a site on the active profile — one per permission level.
+ *
+ * It used to be one per site, so a narrower answer replaced a broader one: "reject decrypting for
+ * five minutes" wiped "sign forever", and five minutes later the site had nothing and asked for
+ * everything again. A decision now replaces only the one at its own level. Allowing a level also
+ * lifts any refusal at or below it, which would otherwise still win and leave the grant just given
+ * doing nothing.
  * @param host - Origin host the permission applies to
  * @param condition - Authorization condition (e.g. always, expirable)
  * @param level - Permission level determining allowed capabilities
@@ -479,9 +484,9 @@ export async function addActivePermission(
   decision: PermissionDecision = PermissionDecision.ALLOW,
   durationSeconds?: number
 ): Promise<ProfilesConfig> {
-  let storedPermissions = await readActivePermissions();
+  const storedPermissions = await readActivePermissions();
 
-  const entry: PermissionConfig[string] = {
+  const entry: PermissionEntry = {
     condition,
     level,
     created_at: Math.round(Date.now() / 1000),
@@ -491,10 +496,11 @@ export async function addActivePermission(
     entry.duration_seconds = durationSeconds;
   }
 
-  storedPermissions = {
-    ...storedPermissions,
-    [host]: entry
-  };
+  let others = entriesOf(storedPermissions[host]).filter(e => e.level !== level);
+  if (decision === PermissionDecision.ALLOW) {
+    others = others.filter(e => !(e.decision === PermissionDecision.DENY && e.level <= level));
+  }
+  storedPermissions[host] = byLevel([...others, entry]);
 
   // update the active profile
   const profile = await getActiveProfile();
@@ -506,18 +512,22 @@ export async function addActivePermission(
   return updateProfile(profile, activePublicKey);
 }
 /**
- * Removes a site permission from a profile.
+ * Removes a site's remembered decisions from a profile: the one at `level`, or all of them.
  * @param profilePublicKey - Public key identifying the profile
  * @param host - Origin host whose permission should be removed
+ * @param level - Only the decision at this level; all of the site's when absent
  */
 export async function removePermissions(
   profilePublicKey: string,
-  host: string
+  host: string,
+  level?: number
 ): Promise<ProfilesConfig> {
   const profile = await getProfile(profilePublicKey);
   let permissions = profile.permissions;
-  if (permissions) {
-    delete permissions[host];
+  if (permissions && permissions[host]) {
+    const rest = level == null ? [] : entriesOf(permissions[host]).filter(e => e.level !== level);
+    if (rest.length) permissions[host] = byLevel(rest);
+    else delete permissions[host];
   }
   // update the profile
   profile.permissions = permissions;

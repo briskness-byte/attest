@@ -5,6 +5,7 @@ import {
   AuthorizationCondition,
   PermissionConfig,
   PermissionDecision,
+  PermissionEntry,
   ProfilesConfig,
   SecretKind
 } from './types';
@@ -162,25 +163,50 @@ export function shouldRemoveStoredPermission(
   return createdAtSeconds < nowSeconds - fixedTtl;
 }
 
+/** The decisions stored for one site, whatever shape they were stored in. */
+export function entriesOf(value: PermissionConfig[string] | undefined): PermissionEntry[] {
+  if (!value || typeof value !== 'object') return [];
+  // A single entry, as every site held before 1.26.0.
+  if ('condition' in value) return [value as PermissionEntry];
+  return Object.values(value).filter(
+    (e): e is PermissionEntry => !!e && typeof e === 'object' && 'condition' in e
+  );
+}
+
+/** The same decisions keyed by level, as written from 1.26.0 on. At one level the newer one wins. */
+export function byLevel(entries: PermissionEntry[]): { [level: string]: PermissionEntry } {
+  const out: { [level: string]: PermissionEntry } = {};
+  for (const entry of entries) {
+    const key = String(entry.level);
+    if (!out[key] || (out[key].created_at ?? 0) <= (entry.created_at ?? 0)) out[key] = entry;
+  }
+  return out;
+}
+
 /**
- * Applies a stored permission to an incoming request.
+ * Applies a site's stored decisions to an incoming request.
  *
- * An `allow` entry covers every request up to its level, a `deny` entry refuses every
- * request from its level upward. Anything the entry does not cover is asked again.
+ * An `allow` covers every request up to its level, a `deny` refuses every request from its level
+ * upward, and a refusal wins while it lasts. That also makes the most recent word the one that
+ * counts: allowing a level removes the refusals it covers (see addActivePermission), so a refusal
+ * still standing was given after any grant it overlaps. Anything not covered is asked again.
  *
- * @param entry - Stored permission for the host, if any
+ * @param value - The stored decisions for the host, if any, in either shape
  * @param requiredLevel - Level the requested method needs
  */
 export function resolveStoredPermission(
-  entry: PermissionConfig[string] | undefined,
+  value: PermissionConfig[string] | undefined,
   requiredLevel: number
 ): 'allow' | 'deny' | 'ask' {
-  if (!entry) return 'ask';
-
-  if ((entry.decision ?? PermissionDecision.ALLOW) === PermissionDecision.DENY) {
-    return entry.level <= requiredLevel ? 'deny' : 'ask';
-  }
-  return entry.level >= requiredLevel ? 'allow' : 'ask';
+  const entries = entriesOf(value);
+  const refused = entries.some(
+    e => e.decision === PermissionDecision.DENY && e.level <= requiredLevel
+  );
+  if (refused) return 'deny';
+  const allowed = entries.some(
+    e => (e.decision ?? PermissionDecision.ALLOW) === PermissionDecision.ALLOW && e.level >= requiredLevel
+  );
+  return allowed ? 'allow' : 'ask';
 }
 
 /**
@@ -229,10 +255,9 @@ export function migratePermissionKeys(permissions: PermissionConfig | undefined)
   for (const [key, entry] of Object.entries(permissions ?? {})) {
     const origin = originForLegacyKey(key);
     if (!origin) continue;
-    // Two keys can only land on one origin if that origin was already stored; the newer one wins.
-    if (!out[origin] || (out[origin].created_at ?? 0) < (entry.created_at ?? 0)) {
-      out[origin] = entry;
-    }
+    // Two keys can only land on one origin if that origin was already stored. Keep the decisions of
+    // both, one per level, the newer winning where they share one.
+    out[origin] = out[origin] ? byLevel([...entriesOf(out[origin]), ...entriesOf(entry)]) : entry;
   }
   return out;
 }

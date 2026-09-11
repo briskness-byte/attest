@@ -32,7 +32,8 @@ import {
   validatePrivateKeyFormat,
   formatPermissionConditionLabel,
   formatPermissionDecisionLabel,
-  migratePermissionKeys
+  migratePermissionKeys,
+  entriesOf
 } from './common';
 // The SVG rather than the PNG: its wordmark is drawn in currentColor, so it follows the
 // theme. The PNG has near-black lettering baked in, which on the dark background came out
@@ -676,15 +677,18 @@ function Options() {
   function convertPermissionsToUIObject(permissions?: PermissionConfig) {
     if (!permissions) return undefined;
 
+    // One row per remembered decision; a site can hold one at each permission level.
     return Object.entries(permissions)
-      .map(([host, { level, condition, created_at, duration_seconds, decision }]) => ({
-        host,
-        level,
-        condition,
-        created_at,
-        duration_seconds,
-        decision
-      }))
+      .flatMap(([host, value]) =>
+        entriesOf(value).map(({ level, condition, created_at, duration_seconds, decision }) => ({
+          host,
+          level,
+          condition,
+          created_at,
+          duration_seconds,
+          decision
+        }))
+      )
       .sort((a, b) => {
         // rejections first: a site that is being refused never prompts again, so this
         // page is the only place the decision can be undone
@@ -697,13 +701,15 @@ function Options() {
   async function handleRevoke(e) {
     e.preventDefault();
     const { domain: host, decision } = e.target.dataset;
+    const level = Number(e.target.dataset.level);
     const isDenied = decision === PermissionDecision.DENY;
+    // One row, one decision: the others this site holds stay as they are.
     const question = isDenied
-      ? `Let ${host} ask for permission again?`
-      : `Revoke all permissions from ${host}?`;
+      ? `Let ${host} ask again to ${getPermissionsString(level)}?`
+      : `Revoke this permission from ${host}?`;
 
     if (window.confirm(question)) {
-      await Storage.removePermissions(selectedProfilePubKey, host);
+      await Storage.removePermissions(selectedProfilePubKey, host, level);
       // The table follows storage on its own; reloading the profile here would also reset the relays.
       showMessage(isDenied ? `${host} can ask again` : `Removed permissions from ${host}`);
     }
@@ -1035,7 +1041,7 @@ function Options() {
                 <tbody>
                   {permissions.map(
                     ({ host, level, condition, created_at, duration_seconds, decision }) => (
-                      <tr key={host}>
+                      <tr key={`${host} ${level}`}>
                         <td>{host}</td>
                         <td>{formatPermissionDecisionLabel(decision)}</td>
                         <td>{getPermissionsString(level)}</td>
@@ -1050,6 +1056,7 @@ function Options() {
                           <button
                             onClick={handleRevoke}
                             data-domain={host}
+                            data-level={level}
                             data-decision={decision}
                           >
                             {decision === PermissionDecision.DENY ? 'unblock' : 'revoke'}

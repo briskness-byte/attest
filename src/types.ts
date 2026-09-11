@@ -52,16 +52,24 @@ export type RelaysConfig = {
   [url: string]: { read: boolean; write: boolean };
 };
 
+/** One remembered decision about a site, at one permission level. */
+export type PermissionEntry = {
+  condition: string;
+  created_at: number;
+  level: number;
+  /** Present when `condition` is `expirable_custom`; TTL in seconds from `created_at`. */
+  duration_seconds?: number;
+  /** Whether the host was allowed or denied. Absent means `allow` (entries stored before denials existed). */
+  decision?: PermissionDecision;
+};
+
+/**
+ * Remembered decisions per site. Since 1.26.0 a site holds one decision per permission level,
+ * keyed by the level. Before, it held a single entry, and a narrower answer replaced a broader one.
+ * Both shapes are read — see entriesOf in common.ts — and only the keyed one is written.
+ */
 export type PermissionConfig = {
-  [host: string]: {
-    condition: string;
-    created_at: number;
-    level: number;
-    /** Present when `condition` is `expirable_custom`; TTL in seconds from `created_at`. */
-    duration_seconds?: number;
-    /** Whether the host was allowed or denied. Absent means `allow` (entries stored before denials existed). */
-    decision?: PermissionDecision;
-  };
+  [host: string]: { [level: string]: PermissionEntry } | PermissionEntry;
 };
 
 export type ProfileConfig = {
