@@ -5,7 +5,17 @@
 
 import { clearUint8Array } from './memoryUtils';
 
-const PBKDF2_ITERATIONS = 100000;
+/**
+ * PBKDF2 rounds for everything encrypted from 1.25.0 on: OWASP's current figure for
+ * PBKDF2-HMAC-SHA256, six times the old count, so six times the cost of every guess (about 90 ms
+ * per unlock). It does not rescue a 4–6 digit PIN — a million guesses stay a million guesses, and
+ * the salt sits right next to the ciphertext — a passphrase is what does that. Blobs written before
+ * carry no count and were made with LEGACY_ITERATIONS; they keep opening.
+ */
+const PBKDF2_ITERATIONS = 600000;
+const LEGACY_ITERATIONS = 100000;
+/** Above this a stored count is corrupt, and trying it would freeze the window for minutes. */
+const MAX_ITERATIONS = 10000000;
 const SALT_LENGTH = 16; // bytes
 const IV_LENGTH = 12; // bytes (for AES-GCM)
 
@@ -13,12 +23,18 @@ export interface EncryptedData {
   salt: string; // base64
   iv: string; // base64
   ciphertext: string; // base64
+  /** PBKDF2 rounds used. Absent in blobs written before 1.25.0, which used LEGACY_ITERATIONS. */
+  iterations?: number;
 }
 
 /**
  * Derives an encryption key from a PIN using PBKDF2
  */
-async function deriveKeyFromPin(pin: string, salt: Uint8Array): Promise<CryptoKey> {
+async function deriveKeyFromPin(
+  pin: string,
+  salt: Uint8Array,
+  iterations: number
+): Promise<CryptoKey> {
   const encoder = new TextEncoder();
   const pinData = encoder.encode(pin);
 
@@ -32,7 +48,7 @@ async function deriveKeyFromPin(pin: string, salt: Uint8Array): Promise<CryptoKe
       {
         name: 'PBKDF2',
         salt: salt as BufferSource,
-        iterations: PBKDF2_ITERATIONS,
+        iterations,
         hash: 'SHA-256'
       },
       baseKey,
@@ -64,7 +80,7 @@ export async function encryptPrivateKey(pin: string, privateKey: string): Promis
   const iv = crypto.getRandomValues(new Uint8Array(IV_LENGTH));
 
   // Derive encryption key from PIN
-  const key = await deriveKeyFromPin(pin, salt);
+  const key = await deriveKeyFromPin(pin, salt, PBKDF2_ITERATIONS);
 
   // Convert private key to bytes
   const encoder = new TextEncoder();
@@ -85,7 +101,8 @@ export async function encryptPrivateKey(pin: string, privateKey: string): Promis
     const encryptedData: EncryptedData = {
       salt: arrayBufferToBase64(salt),
       iv: arrayBufferToBase64(iv),
-      ciphertext: arrayBufferToBase64(ciphertext)
+      ciphertext: arrayBufferToBase64(ciphertext),
+      iterations: PBKDF2_ITERATIONS
     };
 
     return JSON.stringify(encryptedData);
@@ -115,8 +132,14 @@ export async function decryptPrivateKey(pin: string, encryptedKey: string): Prom
   const iv = base64ToUint8Array(encryptedData.iv);
   const ciphertext = base64ToUint8Array(encryptedData.ciphertext);
 
+  // The count this blob was written with; see PBKDF2_ITERATIONS.
+  const iterations = encryptedData.iterations ?? LEGACY_ITERATIONS;
+  if (!Number.isInteger(iterations) || iterations < 1 || iterations > MAX_ITERATIONS) {
+    throw new Error('Invalid encrypted key format');
+  }
+
   // Derive encryption key from PIN
-  const key = await deriveKeyFromPin(pin, salt);
+  const key = await deriveKeyFromPin(pin, salt, iterations);
 
   // Decrypt
   let decryptedBytes: ArrayBuffer;
