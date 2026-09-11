@@ -129,6 +129,8 @@ export async function startBrowser({ gdPort, xpi }) {
             ? wd('POST', `/session/${sid}/element/${e[EID]}/value`, { text })
             : Promise.resolve({ value: { error: 'no such element' } }),
         text: async e => (await wd('GET', `/session/${sid}/element/${e[EID]}/text`)).value,
+        // The current window as a base64 PNG, for checking what a page looks like.
+        screenshot: async () => (await wd('GET', `/session/${sid}/screenshot`)).value,
         // Whether a checkbox or radio button is checked.
         selected: async e => (await wd('GET', `/session/${sid}/element/${e[EID]}/selected`)).value,
         // Whether the element is actually drawn, not merely present in the DOM.

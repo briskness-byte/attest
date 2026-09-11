@@ -15,7 +15,7 @@
 import { getPublicKey } from 'nostr-tools';
 import { rm } from 'node:fs/promises';
 
-import { loadBackground, loadModule } from './load-background.mjs';
+import { loadBackground, loadModule, OWN_PAGE } from './load-background.mjs';
 import { reporter } from './harness.mjs';
 import stub, { control, reset, send, closeWindow } from './browser-stub.mjs';
 
@@ -42,7 +42,7 @@ const grant = (created_at, extra = {}) =>
   ({ condition: 'forever', level: 20, created_at, decision: 'allow', ...extra });
 
 const perms = async () => (await stub.storage.local.get('profiles')).profiles[PUBLIC_KEY].permissions ?? {};
-const openPrompts = async () => JSON.parse((await stub.storage.local.get('open_prompts')).open_prompts ?? '[]');
+const openPrompts = async () => JSON.parse((await stub.storage.session.get('open_prompts')).open_prompts ?? '[]');
 const ask = host => send({ type: 'getPublicKey', host, params: {} });
 
 // ------------------------------------------------------------------ 1. the rules on their own
@@ -132,7 +132,7 @@ console.log('\nA remembered answer is stored under the site that asked');
   const p = (await openPrompts()).find(x => x.host === 'http://primal.net');
   // The answer names another site. The prompt was opened for http://primal.net, and that is what
   // the grant must be stored under.
-  await send({ prompt: true, id: p.id, condition: 'forever', level: 1, host: 'https://somewhere-else.example' });
+  await send({ prompt: true, id: p.id, condition: 'forever', level: 1, host: 'https://somewhere-else.example' }, OWN_PAGE);
   await settle();
   ok('the waiting request is answered', (await within(500, overHttp)) === PUBLIC_KEY);
   const after = await perms();
@@ -149,7 +149,7 @@ console.log('\nA page with no origin of its own');
   await settle();
   const p = (await openPrompts()).find(x => x.host === file);
   ok('may still ask', !!p);
-  await send({ prompt: true, id: p.id, condition: 'forever', level: 1, host: file });
+  await send({ prompt: true, id: p.id, condition: 'forever', level: 1, host: file }, OWN_PAGE);
   await settle();
   ok('is answered this once', (await within(500, first)) === PUBLIC_KEY);
   ok('but "forever" is not stored for it', !(file in (await perms())), Object.keys(await perms()));

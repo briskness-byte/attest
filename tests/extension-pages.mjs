@@ -186,5 +186,20 @@ await b.wait(500);
 await b.switchTo(sites);
 ok('  and saying no leaves its grants as they were', (await ask(later)) === pub1);
 
+console.log('\n=== a new profile that was never saved ===');
+// The dismissed Save key above leaves "(new profile)" selected, unsaved.
+await b.switchTo(options);
+const unsavedBefore = await b.el('xpath', "//option[contains(., '(new profile)')]");
+ok('there is an unsaved new profile to delete', !!unsavedBefore);
+await b.click(await b.el('xpath', "//div[@class='profile-actions']/button[contains(., 'Delete')]"));
+await b.wait(500);
+// Look for a dialog before anything else. With one open, WebDriver fails the next element lookup
+// with "unexpected alert open", which reads as "not found" — so the check below would pass for the
+// wrong reason. Dismissing answers both questions: an error here means there was no dialog.
+const dialog = await b.dismissAlert();
+ok('it asks nothing about a profile that was never saved', !!dialog?.value?.error,
+   'a confirmation dialog opened');
+ok('Delete discards it', !(await b.el('xpath', "//option[contains(., '(new profile)')]")));
+
 console.log(`\n${state.fail === 0 ? '✓' : '✗'} extension pages: ${state.pass} passed, ${state.fail} failed`);
 await done();

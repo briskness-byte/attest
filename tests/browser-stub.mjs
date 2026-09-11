@@ -10,6 +10,7 @@ const hub = (globalThis.__attestStub ??= {
   nextWindowId: 1,
   created: [], // every window ever opened, in order
   storage: new Map(),
+  session: new Map(), // storage.session, kept apart from storage.local as it is in Firefox
   onMessage: [],
   onMessageExternal: [],
   onWindowRemoved: [],
@@ -26,6 +27,7 @@ export function reset() {
   hub.created.length = 0;
   hub.nextWindowId = 1;
   hub.storage.clear();
+  hub.session.clear();
   hub.failToOpen = false;
 }
 
@@ -65,6 +67,37 @@ const keysOf = query => {
   return Object.keys(query);
 };
 
+/** One storage area — local or session — over its own map, telling onChanged which one it was. */
+function storageArea(map, name) {
+  return {
+    async get(query) {
+      const out = {};
+      const wanted = keysOf(query);
+      if (wanted === null) {
+        for (const [k, v] of map) out[k] = v;
+      } else {
+        for (const k of wanted) if (map.has(k)) out[k] = map.get(k);
+        // an object query supplies defaults for missing keys
+        if (query && !Array.isArray(query) && typeof query === 'object') {
+          for (const [k, fallback] of Object.entries(query)) if (!(k in out)) out[k] = fallback;
+        }
+      }
+      return out;
+    },
+    async set(items) {
+      const changes = {};
+      for (const [k, v] of Object.entries(items)) {
+        changes[k] = { oldValue: map.get(k), newValue: v };
+        map.set(k, v);
+      }
+      for (const fn of hub.onStorageChanged) await fn(changes, name);
+    },
+    async remove(query) {
+      for (const k of keysOf(query) ?? []) map.delete(k);
+    }
+  };
+}
+
 const browser = {
   runtime: {
     id: 'attest@test',
@@ -85,33 +118,8 @@ const browser = {
   },
 
   storage: {
-    local: {
-      async get(query) {
-        const out = {};
-        const wanted = keysOf(query);
-        if (wanted === null) {
-          for (const [k, v] of hub.storage) out[k] = v;
-        } else {
-          for (const k of wanted) if (hub.storage.has(k)) out[k] = hub.storage.get(k);
-          // an object query supplies defaults for missing keys
-          if (query && !Array.isArray(query) && typeof query === 'object') {
-            for (const [k, fallback] of Object.entries(query)) if (!(k in out)) out[k] = fallback;
-          }
-        }
-        return out;
-      },
-      async set(items) {
-        const changes = {};
-        for (const [k, v] of Object.entries(items)) {
-          changes[k] = { oldValue: hub.storage.get(k), newValue: v };
-          hub.storage.set(k, v);
-        }
-        for (const fn of hub.onStorageChanged) await fn(changes, 'local');
-      },
-      async remove(query) {
-        for (const k of keysOf(query) ?? []) hub.storage.delete(k);
-      }
-    },
+    local: storageArea(hub.storage, 'local'),
+    session: storageArea(hub.session, 'session'),
     onChanged: { addListener: fn => hub.onStorageChanged.push(fn) }
   },
 

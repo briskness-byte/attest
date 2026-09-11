@@ -32,7 +32,7 @@
 import { getPublicKey } from 'nostr-tools';
 import { rm } from 'node:fs/promises';
 
-import { loadBackground } from './load-background.mjs';
+import { loadBackground, OWN_PAGE } from './load-background.mjs';
 import { reporter } from './harness.mjs';
 import stub, { control, reset, killWindowSilently, closeWindow, send } from './browser-stub.mjs';
 
@@ -106,16 +106,19 @@ const signRequest = (content = 'hello') =>
 
 /** The prompt queue. Stored as a JSON string, not an array — storage.ts stringifies it. */
 async function openPrompts() {
-  const { open_prompts: raw } = await stub.storage.local.get('open_prompts');
+  const { open_prompts: raw } = await stub.storage.session.get('open_prompts');
   return JSON.parse(raw ?? '[]');
 }
 
-/** Answer the newest prompt the way the prompt page does. `sender` is null: no window torn down. */
+/**
+ * Answer the newest prompt the way the prompt page does: from one of the extension's own pages, and
+ * one with no tab, so no window is torn down.
+ */
 async function answerLatestPrompt(condition = 'single') {
   const prompts = await openPrompts();
   const last = prompts[prompts.length - 1];
   if (!last) throw new Error('no prompt was registered to answer');
-  await send({ prompt: true, id: last.id, condition, host: HOST, level: 10 });
+  await send({ prompt: true, id: last.id, condition, host: HOST, level: 10 }, OWN_PAGE);
   await settle();
   return last.id;
 }
@@ -212,6 +215,34 @@ console.log('\nThe ordinary path still works');
   await answerLatestPrompt('no');
   const refusal = await within(500, refused);
   ok('a rejection comes back as an error, not as silence', !!refusal?.error?.message, refusal);
+}
+
+// ------------------------------------------------------------------ 5. who answers, and where
+
+console.log('\nWhere the queue is kept, and who may answer it');
+{
+  await freshProfile();
+
+  const pending = signRequest('kept');
+  await settle();
+  ok('the queue is kept in session storage', (await promptCount()) === 1);
+  ok(
+    '  and not in storage.local, which is written to disk',
+    (await stub.storage.local.get('open_prompts')).open_prompts === undefined
+  );
+
+  const [p] = await openPrompts();
+  const fromPage = await send(
+    { prompt: true, id: p.id, condition: 'forever', host: HOST, level: 10 },
+    { url: 'https://example.com/', tab: { id: 99, windowId: 99 } }
+  );
+  await settle();
+  ok('an answer from a web page is refused', !!fromPage?.error, fromPage);
+  ok('  and the request is still waiting', (await within(100, pending)) === TIMEOUT);
+
+  await answerLatestPrompt();
+  const event = await within(500, pending);
+  ok('the prompt page can still answer it', !!event?.sig, event);
 }
 
 // ------------------------------------------------------------------

@@ -74,15 +74,17 @@ for (const type of NIP07) {
 }
 
 console.log('\n=== and the extension is not refused its own pages ===');
-// This is the half the first fix broke, and it cannot be driven from out here: an extension page
-// lives at moz-extension://<uuid>/, the uuid is random per profile, and Firefox will not tell an
-// outside process what it assigned. Four ways were tried — the uuids preference, WebExtensionPolicy,
-// AddonManager and Services from geckodriver's chrome sandbox — and none is reachable.
+// This is the half the first fix broke, and it is tested two ways.
 //
-// So the decision is tested where it is made instead, by lifting it out of the shipped bundle. That
-// is enough to catch the regression that happened, because the two implementations disagree on
-// exactly one input: a sender that has BOTH a tab and an extension URL. The options page is opened
-// with tabs.create(), so that is what it looks like — and a `sender.tab` check calls it a web page.
+// Driven for real, at the end of this file: the options page asks for the PIN window, and the
+// window has to open. That used to be impossible from out here — four ways into the extension's
+// address all failed — because geckodriver's chrome scripts run with a null principal unless it is
+// started with --allow-system-access, which the harness now does.
+//
+// And where the decision is made, by lifting it out of the shipped bundle. The two implementations
+// disagree on exactly one input: a sender that has BOTH a tab and an extension URL. The options page
+// is opened with tabs.create(), so that is what it looks like — and a `sender.tab` check calls it a
+// web page.
 const bundle = fs.readFileSync(new URL('../dist/background.js', import.meta.url), 'utf8');
 const BASE = 'moz-extension://11111111-2222-3333-4444-555555555555/';
 const lifted = (() => {
@@ -107,6 +109,22 @@ if (typeof lifted === 'function') {
     ok('a sender with no url at all is refused', lifted({ tab: { id: 9 } }) === false);
     // A page cannot fake it: startsWith on the real base is what decides.
     ok('a lookalike url does not pass', lifted({ url: 'https://moz-extension.example.com/options.html' }) === false);
+}
+
+console.log('\n=== and, driven for real, the options page still reaches the PIN window ===');
+ok("the extension's own pages are reachable", !!b.base, b.base);
+if (b.base) {
+    await b.openExt('options.html');
+    await b.click(await b.el('xpath', "//button[contains(., 'Turn protection on')]"));
+    await b.wait(1500);
+    let pinWindow = false;
+    for (const h of await b.handles()) {
+        await b.switchTo(h);
+        if ((await b.url())?.includes('/pin.html')) { pinWindow = true; break; }
+    }
+    // The symptom of the regression, exactly: the button sent its message, got a refusal, and no
+    // window ever appeared.
+    ok('"Turn protection on" opens the PIN window: the extension is not refused its own page', pinWindow);
 }
 
 console.log(`\n${state.fail === 0 ? '✓' : '✗'} security boundary: ${state.pass} passed, ${state.fail} failed`);

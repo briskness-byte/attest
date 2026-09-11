@@ -5,6 +5,10 @@
 // into it would have been cut down to its numbers without a word — and the key encrypted with
 // whatever was left.
 //
+// With protection on it also checks what needs the key and what does not: the public key is not a
+// secret and must not cost an unlock, and a permission prompt must still say which profile would
+// sign even though that profile's key is encrypted.
+//
 //   node tests/protection.mjs
 //
 // Requires: Firefox, geckodriver 0.36+ (in ~/tools or $GECKODRIVER), and a package in var/releases
@@ -21,13 +25,17 @@ const GD_PORT = Number(process.env.QA_PORT || 9760);
 const SITE = Number(process.env.QA_SITE_PORT || 8760);
 const PASSPHRASE = 'correct horse battery staple';
 
-// Asks for the public key and waits long enough for somebody to unlock.
+// ?p=pubkey asks for the public key, ?p=sign signs an event; either waits long enough to unlock.
 const PAGE = `<!doctype html><html><head><title>QA</title></head><body><pre id="out"></pre><script>
+const p = new URLSearchParams(location.search).get('p');
 const ready = () => new Promise(r => { const t = setInterval(() => { if (window.nostr) { clearInterval(t); r(); } }, 50); });
 (async () => {
   await ready();
+  const call = p === 'sign'
+    ? window.nostr.signEvent({ kind: 1, content: 'qa', tags: [], created_at: Math.floor(Date.now() / 1000) })
+    : window.nostr.getPublicKey();
   const result = await Promise.race([
-    window.nostr.getPublicKey().catch(e => 'rejected: ' + e.message),
+    call.catch(e => 'rejected: ' + e.message),
     new Promise(r => setTimeout(() => r('__nothing__'), 60000))
   ]);
   document.getElementById('out').textContent = JSON.stringify({ result });
@@ -41,7 +49,8 @@ const server = await new Promise(resolve => {
 
 const sk = '11'.repeat(32);
 const pub = getPublicKey(Uint8Array.from(Buffer.from(sk, 'hex')));
-const site = `http://127.0.0.1:${SITE}`;
+const site = `http://127.0.0.1:${SITE}`;      // holds a grant
+const stranger = `http://localhost:${SITE}`;  // holds none
 
 const { ok, state } = reporter();
 const xpi = newestXpi();
@@ -56,6 +65,18 @@ async function findWindow(part) {
   for (const h of await b.handles()) {
     await b.switchTo(h);
     if ((await b.url())?.includes(part)) return h;
+  }
+  return null;
+}
+
+/** The result the current test page wrote, or null if it wrote none within `ms`. */
+async function readOut(ms) {
+  const end = Date.now() + ms;
+  while (Date.now() < end) {
+    const e = await b.el('css selector', '#out');
+    const t = e ? await b.text(e) : '';
+    if (t) return JSON.parse(t).result;
+    await b.wait(250);
   }
   return null;
 }
@@ -113,32 +134,47 @@ const said = status ? await b.text(status) : '(no status line)';
 ok('the options page says the keys are encrypted with a passphrase', /passphrase/.test(said), said);
 ok('  and offers to turn it off, without being reloaded', !!(await byText('button', 'Turn protection off')));
 
-// ---- a site then needs the passphrase ----
-console.log('\n=== a site that needs the key ===');
-// Setting up caches the secret for the default ten seconds; wait them out, so the site has to ask.
+// ---- what needs the key, and what does not ----
+console.log('\n=== what needs the key, and what does not ===');
+// Setting up caches the secret for the default ten seconds; wait them out, so nothing rides on it.
 await b.wait(11000);
 const sites = await b.newTab();
 await b.switchTo(sites);
-await b.goto(`${site}/`);
+
+await b.goto(`${site}/?p=pubkey`);
+const asked = await readOut(8000);
+ok('the public key comes back without the passphrase: it is not a secret', asked === pub, asked);
+ok('  and no unlock window opens for it', !(await findWindow('/pin.html')));
+await b.switchTo(sites);
+
+// A site with no grant gets a permission prompt, and the prompt has to say who would sign.
+await b.goto(`${stranger}/?p=pubkey`);
+await b.wait(2000);
+const promptWin = await findWindow('/prompt.html');
+ok('a site without a grant gets a permission prompt', !!promptWin);
+if (promptWin) {
+  const body = await b.text(await b.el('css selector', 'body'));
+  ok('the prompt names the profile that would sign, though its key is encrypted',
+     /Signing with profile:\s*qa \(npub/.test(body), body.slice(0, 160));
+  ok('  and shows no "Event:" line for a request that carries no event', !/Event:/.test(body));
+}
+await b.switchTo(sites);
+
+await b.goto(`${site}/?p=sign`);
 await b.wait(2000);
 const unlockWin = await findWindow('/pin.html');
-ok('the unlock window opens', !!unlockWin);
+ok('signing opens the unlock window', !!unlockWin);
 if (unlockWin) {
   const label = await b.el('css selector', 'label[for="pin-input"]');
-  ok('  and asks for the passphrase, not a PIN', label && /Passphrase/.test(await b.text(label)));
+  ok('  which asks for the passphrase, not a PIN', !!label && /Passphrase/.test(await b.text(label)));
   await b.type(await b.el('css selector', '#pin-input'), PASSPHRASE);
   await b.click(await b.el('css selector', '.action-buttons button'));
   await b.wait(2000);
 }
 await b.switchTo(sites);
-let result = null;
-for (let i = 0; i < 40 && !result; i++) {
-  const e = await b.el('css selector', '#out');
-  const t = e ? await b.text(e) : '';
-  if (t) result = JSON.parse(t).result;
-  else await b.wait(250);
-}
-ok('once unlocked, the site is answered with the real key', result === pub, result);
+const signed = await readOut(10000);
+ok('once unlocked, the event is signed with the real key', signed?.pubkey === pub,
+   JSON.stringify(signed)?.slice(0, 120));
 
 console.log(`\n${state.fail === 0 ? '✓' : '✗'} protection: ${state.pass} passed, ${state.fail} failed`);
 await done();

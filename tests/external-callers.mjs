@@ -43,7 +43,7 @@ async function freshProfile() {
 
 /** The host a prompt was registered under — the string the dialog will show. */
 async function promptedHosts() {
-  const { open_prompts: raw } = await stub.storage.local.get('open_prompts');
+  const { open_prompts: raw } = await stub.storage.session.get('open_prompts');
   return JSON.parse(raw ?? '[]').map(p => p.host);
 }
 
@@ -89,6 +89,19 @@ console.log('\nA caller with no id at all');
 
   ok('is refused', !!answer?.error, answer);
   ok('and no prompt is raised on its behalf', (await promptedHosts()).length === 0);
+}
+
+console.log('\nA method that does not exist');
+{
+  await freshProfile();
+
+  const answer = await sendExternal({ type: 'getSecretKey', params: {} }, { id: 'somebody-else@example.com' });
+  await settle();
+  ok('is refused by name', /unknown method/.test(answer?.error?.message ?? ''), answer);
+  ok(
+    'without a prompt — which used to list every capability, and never settled once answered',
+    (await promptedHosts()).length === 0
+  );
 }
 
 await rm(outdir, { recursive: true, force: true });
