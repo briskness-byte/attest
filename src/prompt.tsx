@@ -40,7 +40,15 @@ function Prompt() {
   const [activePubKeyNIP19, setActivePubKeyNIP19] = useState<string>('');
 
   // const [openPrompts, setOpenPromps] = useState<OpenPromptItem[]>();
-  const [activePromptIndex, setActivePrompt] = useState<number>(0);
+  const [requestedPromptIndex, setActivePrompt] = useState<number>(0);
+  // Clamped on every render rather than corrected afterwards. The queue shrinks as prompts are
+  // answered, and answering the last one left the index past its end: the render read `.host` of
+  // undefined, the window went blank, and the prompts still waiting could only be rejected, by
+  // closing it. An effect would run too late — the render that throws comes first.
+  const activePromptIndex = Math.min(
+    requestedPromptIndex,
+    Math.max((openPrompts?.length ?? 0) - 1, 0)
+  );
 
   const [kindName, setKindName] = useState<string | null>(null);
   const [kind, setKind] = useState<number | null>(null);
