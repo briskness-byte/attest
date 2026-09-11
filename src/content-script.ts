@@ -143,7 +143,9 @@ window.addEventListener('message', async message => {
     });
   } catch (error) {
     console.error('Error from calling extension.', error);
-    response = { error };
+    // The message only. An Error posted whole takes its stack across, and a stack from in here names
+    // moz-extension://<uuid>/ — a per-install identifier the page has no business reading.
+    response = { error: { message: error?.message ?? String(error) } };
   }
 
   // return response

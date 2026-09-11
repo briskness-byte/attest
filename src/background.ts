@@ -272,6 +272,10 @@ if (browser.windows) {
  * @param params - The prompt parameters required for the operation.
  * @param host - The host from which the message originated.
  * @returns A response object which can be an Error, a pubkey, a VerifiedEvent or a RelaysConfig.
+ *
+ * Errors go back as a message and nothing else. They used to carry `stack` too, and a stack from
+ * here reads `handleContentScriptMessage@moz-extension://<uuid>/background.js` — the per-install
+ * identifier, handed to any site with signing permission that sent an event with the wrong pubkey.
  */
 async function handleContentScriptMessage({
   type,
@@ -305,7 +309,7 @@ async function handleContentScriptMessage({
         }
       } catch (error) {
         console.error('Error asking for permission.', error);
-        return { error: { message: error.message, stack: error.stack } };
+        return { error: { message: error.message } };
       }
       break;
   }
@@ -375,7 +379,7 @@ async function handleContentScriptMessage({
       }
     }
   } catch (error) {
-    return { error: { message: error.message, stack: error.stack } };
+    return { error: { message: error.message } };
   } finally {
     // Clear private key Uint8Array from memory after operations complete
     clearUint8Array(sk);
