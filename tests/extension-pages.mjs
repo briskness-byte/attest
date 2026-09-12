@@ -176,6 +176,23 @@ await b.switchTo(sites);
 ok('after Save key the revoked site still has to ask', (await ask(granted)) === '__asked__');
 ok('  and the site granted meanwhile is still answered', (await ask(later)) === pub1);
 
+console.log('\n=== the Keys section for a saved profile ===');
+await b.switchTo(options);
+const keyField = await b.el('css selector', '#private-key');
+ok('the stored key is shown, masked', !!keyField && (await b.attr(keyField, 'type')) === 'password');
+ok('  and cannot be typed into', !!keyField && (await b.attr(keyField, 'readonly')) !== null);
+await b.click(await b.el('css selector', "button[title='Show the key']"));
+ok('the eye reveals it — it has something to reveal', (await b.attr(keyField, 'type')) === 'text');
+await b.click(await byText('button', 'Add another key'));
+await b.wait(500);
+const pasteHere = await b.el('css selector', '#private-key');
+ok('"Add another key" opens an editable field in this same section',
+   !!pasteHere && (await b.attr(pasteHere, 'readonly')) === null);
+await b.click(await byText('button', 'Cancel'));
+await b.wait(300);
+ok('Cancel puts the saved key back on screen',
+   !!(await byText('button', 'Add another key')));
+
 console.log('\n=== saving a key that already has a profile ===');
 await b.switchTo(options);
 await saveNewKey(sk1);

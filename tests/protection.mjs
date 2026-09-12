@@ -133,6 +133,11 @@ const status = await b.el('css selector', '.pin-status-message');
 const said = status ? await b.text(status) : '(no status line)';
 ok('the options page says the keys are encrypted with a passphrase', /passphrase/.test(said), said);
 ok('  and offers to turn it off, without being reloaded', !!(await byText('button', 'Turn protection off')));
+// An encrypted key cannot be shown, so there is nothing that looks like a field holding one.
+ok('no private-key field is drawn for a key that cannot be shown',
+   !(await b.el('css selector', '#private-key')));
+ok('  and the key can still be taken out, through the passphrase',
+   !!(await byText('button', 'Copy private key')));
 
 // ---- what needs the key, and what does not ----
 console.log('\n=== what needs the key, and what does not ===');
