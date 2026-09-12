@@ -42,6 +42,8 @@ Web page  →  content-script.js  →  background.js  ←  popup / options / pro
 ```bash
 yarn install
 yarn build          # production build → dist/
+yarn typecheck      # tsc over src/, strict. release.sh refuses a release on errors in
+                    # background.ts, storage.ts or common.ts; elsewhere they are reported only
 yarn watch          # rebuild on file changes
 yarn start:firefox  # run extension in Firefox via web-ext
 ```
