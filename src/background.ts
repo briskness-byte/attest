@@ -24,6 +24,7 @@ import {
   derivePublicKeyFromPrivateKey,
   normalizeCustomAuthorizationDurationSeconds,
   isRememberableKey,
+  messageOf,
   resolveStoredPermission,
   secretProblem
 } from './common';
@@ -85,7 +86,9 @@ function fromOwnPage(sender: browser.Runtime.MessageSender): boolean {
   return typeof sender?.url === 'string' && sender.url.startsWith(base);
 }
 
-browser.runtime.onMessage.addListener(async (message, sender) => {
+// `message` is whatever was sent: this listener is the boundary, and what arrives is sorted out by
+// its `type` below. `sender` is Firefox's own, and is what fromOwnPage reads.
+browser.runtime.onMessage.addListener(async (message: any, sender: browser.Runtime.MessageSender) => {
   // The content script's allow-list is not the only thing that should be refusing these — this is
   // the half that survives somebody adding a second bridge later and forgetting.
   if (!fromOwnPage(sender) && EXTENSION_PAGES_ONLY.has(message?.type)) {
@@ -111,7 +114,7 @@ browser.runtime.onMessage.addListener(async (message, sender) => {
       try {
         await promptPin(mode);
       } catch (error) {
-        return { success: false, error: error?.message ?? 'the PIN window was closed' };
+        return { success: false, error: messageOf(error) };
       }
       return { success: true };
     }
@@ -144,7 +147,7 @@ browser.runtime.onMessage.addListener(async (message, sender) => {
       const encryptedKey = await encryptPrivateKey(pin, privateKey);
       return { success: true, encryptedKey };
     } catch (error) {
-      return { success: false, error: error.message };
+      return { success: false, error: messageOf(error) };
     } finally {
       // Clear PIN reference after use (strings are immutable, but we null the reference)
       pin = clearStringReference(pin) as any;
@@ -188,7 +191,8 @@ browser.runtime.onMessage.addListener(async (message, sender) => {
  * Grants made under the old UUID no longer match and are simply asked again, which is the right
  * direction for a permission to fail in.
  */
-browser.runtime.onMessageExternal.addListener(async (message, sender) => {
+browser.runtime.onMessageExternal.addListener(
+  async (message: any, sender: browser.Runtime.MessageSender) => {
   const { type, params } = message as ContentMessageArgs;
 
   if (!sender?.id) {
@@ -328,7 +332,7 @@ async function handleContentScriptMessage({
     return { error: { message: `unknown method "${type}"` } };
   }
 
-  const requiredLevel = PERMISSIONS_REQUIRED[type];
+  const requiredLevel = PERMISSIONS_REQUIRED[type as keyof typeof PERMISSIONS_REQUIRED];
   const insufficientPermissions = {
     error: { message: `Insufficient permissions, required ${requiredLevel}` }
   };
@@ -352,7 +356,7 @@ async function handleContentScriptMessage({
         }
       } catch (error) {
         console.error('Error asking for permission.', error);
-        return { error: { message: error.message } };
+        return { error: { message: messageOf(error) } };
       }
       break;
   }
@@ -433,7 +437,7 @@ async function handleContentScriptMessage({
       }
     }
   } catch (error) {
-    return { error: { message: error.message } };
+    return { error: { message: messageOf(error) } };
   } finally {
     // Clear private key Uint8Array from memory after operations complete
     clearUint8Array(sk);
@@ -448,7 +452,7 @@ async function handlePromptMessage(
     durationSeconds,
     decision = PermissionDecision.ALLOW
   }: PromptResponse,
-  sender
+  sender: browser.Runtime.MessageSender | null
 ): Promise<void> {
   const openPrompt = openPromptMap[id];
   if (!openPrompt) {
@@ -505,16 +509,17 @@ async function handlePromptMessage(
     delete openPromptMap[id];
 
     // close prompt — only a page that lives in a window has a window to close
-    if (sender?.tab) {
+    const tab = sender?.tab;
+    if (tab) {
       const openPrompts = await PromptManager.get();
 
       // only close the prompt window if there is no other prompt pending
       if (openPrompts.length == 1) {
-        if (browser.windows) {
-          await browser.windows.remove(sender.tab.windowId);
-        } else {
+        if (browser.windows && tab.windowId !== undefined) {
+          await browser.windows.remove(tab.windowId);
+        } else if (tab.id !== undefined) {
           // Android Firefox
-          await browser.tabs.remove(sender.tab.id);
+          await browser.tabs.remove(tab.id);
         }
       }
     }
@@ -917,7 +922,7 @@ async function handlePinMessage(
       pinPrompt.reject(error);
       delete pinPromptMap[pinPrompt.id];
     }
-    return { success: false, error: error.message };
+    return { success: false, error: messageOf(error) };
   } finally {
     // Clear PIN reference after use (strings are immutable, but we null the reference)
     localPin = clearStringReference(localPin) as any;

@@ -10,6 +10,16 @@ import {
   SecretKind
 } from './types';
 
+/**
+ * The message from something that was thrown, which in JavaScript can be anything at all.
+ *
+ * `error.message` on a thrown string is undefined, and "undefined" is what the caller was then
+ * told had gone wrong.
+ */
+export function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 export const PERMISSIONS_REQUIRED = {
   getPublicKey: 1,
   getRelays: 5,
@@ -64,7 +74,7 @@ export const MAX_CUSTOM_AUTHORIZATION_SECONDS = 366 * 24 * 60 * 60;
  *          If no capabilities are allowed, returns ['nothing'].
  */
 export function getAllowedCapabilities(permission: number): string[] {
-  let requestedMethods: string[] = [];
+  let requestedMethods: (keyof typeof PERMISSIONS_REQUIRED)[] = [];
   for (let i = 0; i < ORDERED_PERMISSIONS.length; i++) {
     let [perm, methods] = ORDERED_PERMISSIONS[i];
     if (perm > permission) break;

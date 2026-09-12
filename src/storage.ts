@@ -19,6 +19,7 @@ import {
   derivePublicKeyFromPrivateKey,
   canDerivePublicKeyFromPrivateKey,
   migratePermissionKeys,
+  messageOf,
   shouldRemoveStoredPermission,
   entriesOf,
   byLevel
@@ -346,7 +347,7 @@ export async function disablePinProtection(pin: string): Promise<void> {
           profile.privateKey = await decryptPrivateKey(pin, profile.privateKey);
         } catch (error) {
           console.error(`Failed to decrypt profile ${pubKey}:`, error);
-          throw new Error(`Failed to decrypt profile private key: ${error.message}`);
+          throw new Error(`Failed to decrypt profile private key: ${messageOf(error)}`);
         }
       }
     }
@@ -423,7 +424,7 @@ export async function readActiveRelays(): Promise<RelaysConfig> {
  */
 export async function updateRelays(
   profilePublicKey: string,
-  newRelays
+  newRelays: RelaysConfig | undefined
 ): Promise<ProfilesConfig | undefined> {
   if (newRelays) {
     const profile = await getProfile(profilePublicKey);
@@ -962,22 +963,32 @@ export async function updateOpenPrompts(openPrompts: OpenPromptItem[]) {
 
 /**
  * Registers a listener for changes to the open prompts queue.
+ *
+ * What storage listens with is a wrapper around `callback`, and that wrapper is what has to be
+ * removed again, so it is handed back. Removing the callback itself took a different function:
+ * nothing was ever removed, and every prompt page left one behind.
+ *
  * @param callback - Called with the new prompt list when storage changes
+ * @returns The listener to pass to {@link removeOpenPromptChangeListener}
  */
 export function addOpenPromptChangeListener(callback: (newOpenPrompts: OpenPromptItem[]) => void) {
-  return browser.storage.onChanged.addListener(changes => {
+  const listener = (changes: Record<string, browser.Storage.StorageChange>) => {
     // only notify if there's a change with Open Prompts
     if (changes[ConfigurationKeys.OPEN_PROMPTS]) {
       const newValueStr = (changes[ConfigurationKeys.OPEN_PROMPTS].newValue ?? '[]') as string;
       callback(JSON.parse(newValueStr) as OpenPromptItem[]);
     }
-  });
+  };
+  browser.storage.onChanged.addListener(listener);
+  return listener;
 }
 /**
  * Unregisters a listener previously added by {@link addOpenPromptChangeListener}.
  * @param listener - The listener function to remove
  */
-export function removeOpenPromptChangeListener(listener) {
+export function removeOpenPromptChangeListener(
+  listener: Parameters<typeof browser.storage.onChanged.removeListener>[0]
+) {
   return browser.storage.onChanged.removeListener(listener);
 }
 

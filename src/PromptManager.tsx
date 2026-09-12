@@ -26,7 +26,7 @@ const managerFunctions = {
   addChangeListener: (callback: (newOpenPrompts: OpenPromptItem[]) => void) => {
     return addOpenPromptChangeListener(callback);
   },
-  removeChangeListener: (listener: (newOpenPrompts: OpenPromptItem[]) => void) => {
+  removeChangeListener: (listener: ReturnType<typeof addOpenPromptChangeListener>) => {
     return removeOpenPromptChangeListener(listener);
   }
 };
@@ -43,9 +43,11 @@ export function useOpenPrompts() {
     const listener = (newOpenPrompts: OpenPromptItem[]) => {
       setOpenPrompts(newOpenPrompts);
     };
-    managerFunctions.addChangeListener(listener);
+    // Keep what storage actually registered. Removing the callback handed to it removed nothing:
+    // storage listens with a wrapper of its own, and that is a different function.
+    const registered = managerFunctions.addChangeListener(listener);
     return () => {
-      managerFunctions.removeChangeListener(listener);
+      managerFunctions.removeChangeListener(registered);
     };
   }, []);
 
