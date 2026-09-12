@@ -9,6 +9,7 @@
   },
   "scripts": {
     "build": "./build.js prod",
+    "typecheck": "tsc --noEmit",
     "build:hosted": "./build.js prod-hosted",
     "watch": "ag -l --js | entr ./build.js",
     "package:src": "cd src; zip -r nos2x-fox_${npm_package_version}_src.zip *; cd ..; mv src/nos2x-fox_${npm_package_version}_src.zip ./var/releases/",
@@ -41,6 +42,7 @@
     "eslint-plugin-react": "^7.28.0",
     "prettier": "^3.0.3",
     "sass": "^1.58.3",
+    "typescript": "^7.0.2",
     "web-ext": "^9.2.0"
   },
   "packageManager": "yarn@1.22.19+sha1.4ba7fc5c6e704fce2066ecbfb0b0d8976fe62447"

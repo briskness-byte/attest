@@ -61,6 +61,8 @@ NIPs (Nostr Implementation Proposals) relevant to this project:
 
 - **DRY** — Reuse existing code when appropriate.
 - **KISS** — Keep changes as simple as possible.
-- Do not add new dependencies; use only what is already in `package.json`.
+- Do not add new dependencies; use only what is already in `package.json`. The one exception so far,
+  agreed on 11 September 2026: `typescript` as a development dependency, for `yarn typecheck`. It
+  never ships in the extension.
 - Update `README.md` when a change affects user-facing behavior already documented there.
 - Group related code together (helpers, types, enums for the same domain).
