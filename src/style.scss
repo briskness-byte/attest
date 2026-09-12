@@ -870,6 +870,13 @@ textarea,
         }
       }
 
+      .key-actions {
+        display: flex;
+        flex-direction: row;
+        gap: 1em;
+        margin-top: 0.5em;
+      }
+
       .relays-list {
         display: flex;
         flex-direction: column;

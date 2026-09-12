@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { useDebouncedCallback } from 'use-debounce';
 import browser from 'webextension-polyfill';
@@ -73,6 +73,7 @@ function Options() {
 
   let [privateKey, setPrivateKey] = useState<string>('');
   let [isKeyHidden, setKeyHidden] = useState(true);
+  const privateKeyInput = useRef<HTMLInputElement>(null);
   let [relays, setRelays] = useState<RelayConfig[]>([]);
   let [newRelayURL, setNewRelayURL] = useState('');
   let [isNewRelayURLValid, setNewRelayURLValid] = useState(true);
@@ -202,6 +203,11 @@ function Options() {
     loadAndSelectProfile(selectedProfilePubKey);
   }, [selectedProfilePubKey]);
 
+  // Adding a key means pasting one, so the cursor belongs where the paste goes.
+  useEffect(() => {
+    if (!selectedProfilePubKey) privateKeyInput.current?.focus();
+  }, [selectedProfilePubKey]);
+
   const showMessage: (
     msg: string,
     type?: 'info' | 'success' | 'warning',
@@ -328,6 +334,15 @@ function Options() {
 
     setRelays([]);
     setPrivateKey('');
+  }
+
+  /** Throw away a key that was never saved: nothing of it exists outside this page. */
+  function discardUnsavedProfile() {
+    const { ['']: _unsaved, ...saved } = profiles;
+    setProfiles(saved);
+    setPrivateKey('');
+    setRelays([]);
+    setSelectedProfilePubKey(Object.keys(saved)[0] ?? '');
   }
 
   function isNewProfilePending() {
@@ -508,11 +523,7 @@ function Options() {
     // it for the confirmation by the npub of an empty key — a string that belongs to nobody — and
     // asked whether to delete that. There is nothing to delete; discarding it is all this means.
     if (!selectedProfilePubKey) {
-      const { ['']: _unsaved, ...saved } = profiles;
-      setProfiles(saved);
-      setPrivateKey('');
-      setRelays([]);
-      setSelectedProfilePubKey(Object.keys(saved)[0] ?? '');
+      discardUnsavedProfile();
       return;
     }
     if (window.confirm(`Delete the profile "${nip19.npubEncode(selectedProfilePubKey)}"?`)) {
@@ -841,6 +852,11 @@ function Options() {
     }
   }
 
+  // The Keys section has three states, and they want different things on screen: adding a key,
+  // showing the stored one, and saying that the stored one is encrypted.
+  const isAddingKey = selectedProfilePubKey === '';
+  const hasSavedProfiles = Object.keys(profiles).some(pubKey => pubKey !== '');
+
   return (
     <>
       <header className="header">
@@ -905,64 +921,107 @@ function Options() {
 
         <section>
           <h3>Keys</h3>
-          {/* The field is read-only while a saved profile is selected, and that is right: replacing
-              a stored key is not an edit, it is a different identity, and doing it in place is how
-              somebody loses the only copy of one. But a greyed-out box that says nothing is a dead
-              end — you click it, nothing happens, and there is no way to guess that the way in is a
-              button in another section. */}
-          <p className="text-help">
-            {selectedProfilePubKey
-              ? 'This profile\u2019s key cannot be changed here. To add another identity — pasting an nsec you already have, or generating a new one — click New under Profile.'
-              : 'Paste an nsec or a hex private key, or press Generate for a new one. Check the public key above before saving.'}
-          </p>
-          <div className="form-field">
-            <label htmlFor="private-key">Private key:</label>
-            <div className="input-group">
-              <input
-                id="private-key"
-                type={isKeyHidden ? 'password' : 'text'}
-                value={privateKey}
-                readOnly={selectedProfilePubKey != ''}
-                title={
-                  selectedProfilePubKey
-                    ? 'Saved keys cannot be edited. Click New under Profile to add another.'
-                    : 'Paste an nsec or a hex private key'
-                }
-                onChange={handlePrivateKeyChange}
-              />
-              <button onClick={handlePrivateKeyShowClick}>
-                {isKeyHidden ? <EyeIcon /> : <EyeOffIcon />}
-              </button>
-              {/* Not `!isKeyValid()`: an empty field counts as valid — that is what lets somebody
-                  clear the box and type a new key. With PIN protection on there is nothing in the
-                  box at all, because an encrypted key cannot be displayed, so the button used to
-                  sit there enabled and do nothing whatsoever when clicked. No dialog, no message,
-                  no console line. Ask what there is to copy instead. */}
-              <button
-                onClick={copyNsec}
-                disabled={!privateKeyBytes() && !pinEnabled}
-                title={
-                  privateKeyBytes()
-                    ? 'Copy the private key to the clipboard'
-                    : pinEnabled
-                      ? 'Enter your PIN or passphrase to copy this key to the clipboard'
-                      : 'There is no key here to copy'
-                }
-              >
-                <CopyIcon />
-              </button>
-              <button disabled={selectedProfilePubKey != ''} onClick={generateRandomPrivateKey}>
-                <DiceIcon /> Generate
-              </button>
-            </div>
-          </div>
-          <button
-            disabled={!privateKey || !isKeyValid() || selectedProfilePubKey != ''}
-            onClick={savePrivateKey}
-            title={privateKey ? 'Save this key' : 'Paste or generate a key first'}
-          >
-            Save key
-          </button>
+          {/* This section used to draw the same input in every state. With protection on it stood
+              there empty — an encrypted key cannot be shown — so it read as a box to paste a new key
+              into, which it was not, and the eye beside it toggled nothing at all. Meanwhile the way
+              to add a key was a button in another section entirely. Each state now shows what is
+              true of it, and the way in is here, where somebody looks for it. */}
+          {isAddingKey ? (
+            <>
+              <p className="text-help">
+                Paste an nsec or a hex private key, or press Generate for a new one. Check the public
+                key above before saving.
+              </p>
+              <div className="form-field">
+                <label htmlFor="private-key">New private key:</label>
+                <div className="input-group">
+                  <input
+                    id="private-key"
+                    ref={privateKeyInput}
+                    type={isKeyHidden ? 'password' : 'text'}
+                    value={privateKey}
+                    placeholder="nsec1… or a hex private key"
+                    onChange={handlePrivateKeyChange}
+                  />
+                  <button
+                    onClick={handlePrivateKeyShowClick}
+                    title={isKeyHidden ? 'Show the key' : 'Hide the key'}
+                  >
+                    {isKeyHidden ? <EyeIcon /> : <EyeOffIcon />}
+                  </button>
+                  <button onClick={generateRandomPrivateKey} title="Generate a new key">
+                    <DiceIcon /> Generate
+                  </button>
+                </div>
+              </div>
+              <div className="key-actions">
+                <button
+                  className="button button-success"
+                  disabled={!privateKey || !isKeyValid()}
+                  onClick={savePrivateKey}
+                  title={privateKey ? 'Save this key' : 'Paste or generate a key first'}
+                >
+                  Save key
+                </button>
+                {hasSavedProfiles && <button onClick={discardUnsavedProfile}>Cancel</button>}
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="text-help">
+                {pinEnabled
+                  ? 'This key is encrypted, so it cannot be shown here. Copy asks for your PIN or passphrase and puts the key on the clipboard.'
+                  : 'The key of the profile selected above. It cannot be changed here: another key is another identity.'}
+              </p>
+              {!pinEnabled && (
+                <div className="form-field">
+                  <label htmlFor="private-key">Private key:</label>
+                  <div className="input-group">
+                    <input
+                      id="private-key"
+                      type={isKeyHidden ? 'password' : 'text'}
+                      value={privateKey}
+                      readOnly
+                      title="A saved key cannot be changed"
+                    />
+                    <button
+                      onClick={handlePrivateKeyShowClick}
+                      title={isKeyHidden ? 'Show the key' : 'Hide the key'}
+                    >
+                      {isKeyHidden ? <EyeIcon /> : <EyeOffIcon />}
+                    </button>
+                    <button
+                      onClick={copyNsec}
+                      disabled={!privateKeyBytes()}
+                      title={
+                        privateKeyBytes()
+                          ? 'Copy the private key to the clipboard'
+                          : 'There is no key here to copy'
+                      }
+                    >
+                      <CopyIcon />
+                    </button>
+                  </div>
+                </div>
+              )}
+              <div className="key-actions">
+                {pinEnabled && (
+                  <button
+                    onClick={copyNsec}
+                    title="Enter your PIN or passphrase to copy this key to the clipboard"
+                  >
+                    <CopyIcon /> Copy private key
+                  </button>
+                )}
+                <button
+                  onClick={handleNewProfileClick}
+                  title="Add another identity: paste a key you already have, or generate one"
+                >
+                  <AddCircleIcon /> Add another key
+                </button>
+              </div>
+            </>
+          )}
 
           <h4 className="mb-0">PIN or passphrase</h4>
           <p className="text-help">
