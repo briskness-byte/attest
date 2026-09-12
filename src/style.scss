@@ -1127,6 +1127,22 @@ textarea,
   color: $color-success;
 }
 
+// A checkbox with its label beside it. The general `input` rule makes every input a stretching,
+// bordered flex box, which a checkbox should not be.
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  cursor: pointer;
+
+  input {
+    flex-grow: 0;
+    width: auto;
+    padding: 0;
+    margin: 0;
+  }
+}
+
 .help-cursor {
   cursor: help;
 }

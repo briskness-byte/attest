@@ -106,7 +106,13 @@ browser.runtime.onMessage.addListener(async (message, sender) => {
   if (message.type === 'openPinPrompt') {
     const mode = message.mode as PinMode;
     if (mode && ['setup', 'unlock', 'disable', 'copy'].includes(mode)) {
-      await promptPin(mode);
+      // A window that is closed rather than answered rejects. The page that asked for it is owed an
+      // answer either way, and an escaped rejection here is an unhandled one in the background.
+      try {
+        await promptPin(mode);
+      } catch (error) {
+        return { success: false, error: error?.message ?? 'the PIN window was closed' };
+      }
       return { success: true };
     }
     return { success: false, error: 'Invalid PIN mode' };
@@ -187,6 +193,17 @@ browser.runtime.onMessageExternal.addListener(async (message, sender) => {
 
   if (!sender?.id) {
     return { error: { message: 'the caller could not be identified' } };
+  }
+
+  // Closed unless it was opened in the options. Nothing is asked and nothing is stored: an extension
+  // that may not ask should not be able to put a prompt in front of anybody either.
+  if (!(await Storage.isExternalCallersAllowed())) {
+    return {
+      error: {
+        message:
+          'Attest does not take requests from other extensions. This can be turned on in its options.'
+      }
+    };
   }
 
   return handleContentScriptMessage({ type, params, host: `extension:${sender.id}` });
@@ -651,25 +668,34 @@ async function getDecryptedPrivateKey(): Promise<string | null> {
 }
 
 /**
+ * The PIN prompt already waiting for an answer, per mode. A second request that needs the PIN while
+ * one is waiting shares that one's answer.
+ *
+ * It used to get a prompt of its own, hung on the window already open — but that window carries the
+ * first request's id in its address, so it could only ever answer the first. The second waited
+ * until the window was closed and was then refused: a PIN typed, and nothing to show for it.
+ */
+const pinPromptsWaiting = new Map<PinMode, Promise<string | null>>();
+
+/**
  * Prompts the user for PIN entry
  * @param mode - 'setup', 'unlock', 'disable', or 'copy'
  * @returns The entered PIN, or null if cancelled/error
  */
 function promptPin(mode: PinMode): Promise<string | null> {
+  const waiting = pinPromptsWaiting.get(mode);
+  if (waiting) {
+    console.debug('A PIN prompt is already waiting; sharing its answer.');
+    return waiting;
+  }
+
   const id = Math.random().toString().slice(4);
 
-  return new Promise((resolve, reject) => {
-    // Same reasoning as promptPermission: registered first, so a second request in the same tick
-    // finds it instead of opening a second window.
+  const prompt = new Promise<string | null>((resolve, reject) => {
     pinPromptMap[id] = { id, resolve, reject, mode };
+    console.debug('Opening PIN prompt window.');
 
-    const inFlight = Object.values(pinPromptMap).find(
-      p => p.id !== id && p.mode === mode && p.windowId != null
-    );
-    if (inFlight) console.debug('There is already a PIN prompt window open.');
-    else console.debug('Opening PIN prompt window.');
-
-    promptWindow(`pin:${mode}`, inFlight?.windowId, () =>
+    promptWindow(`pin:${mode}`, undefined, () =>
       // Setup has a choice to make and an explanation of it to show, the other modes one field.
       openPopupWindow(`pin.html?mode=${mode}&id=${id}`, {
         width: 460,
@@ -688,6 +714,14 @@ function promptPin(mode: PinMode): Promise<string | null> {
       }
     );
   });
+
+  // Registered before anything is awaited, so a second request in the same tick finds it too.
+  pinPromptsWaiting.set(mode, prompt);
+  const settled = () => {
+    if (pinPromptsWaiting.get(mode) === prompt) pinPromptsWaiting.delete(mode);
+  };
+  prompt.then(settled, settled);
+  return prompt;
 }
 
 /**

@@ -45,7 +45,9 @@ export enum ConfigurationKeys {
   /** 'origin' once stored permissions have been moved off bare hosts (1.25.0). */
   PERMISSIONS_KEYED_BY = 'permissions_keyed_by',
   /** 'pin' or 'passphrase': what the keys are protected with. Absent means a PIN (before 1.25.0). */
-  PIN_KIND = 'pin_kind'
+  PIN_KIND = 'pin_kind',
+  /** true once the user lets other extensions ask this signer. Absent means no (1.27.0 on). */
+  EXTERNAL_CALLERS_ALLOWED = 'external_callers_allowed'
 }
 
 export type RelaysConfig = {

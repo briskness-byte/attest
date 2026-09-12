@@ -87,6 +87,7 @@ function Options() {
   let [pinKind, setPinKind] = useState<'pin' | 'passphrase'>('pin');
   let [pinCacheDuration, setPinCacheDuration] = useState<number>(10 * 1000); // Default: 10 seconds
   let [theme, setTheme] = useState<'system' | 'light' | 'dark'>('system');
+  let [externalCallersAllowed, setExternalCallersAllowed] = useState(false);
   let [nostrLinkHandlerUrl, setNostrLinkHandlerUrl] = useState('');
   let [isNostrLinkHandlerUrlValid, setNostrLinkHandlerUrlValid] = useState(true);
 
@@ -158,6 +159,7 @@ function Options() {
 
     // Load PIN cache duration
     Storage.getTheme().then(setTheme);
+    Storage.isExternalCallersAllowed().then(setExternalCallersAllowed);
     Storage.getPinCacheDuration().then(duration => {
       setPinCacheDuration(duration);
     });
@@ -651,6 +653,16 @@ function Options() {
     await Storage.setTheme(t);
   }
 
+  async function handleExternalCallersChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const allowed = e.target.checked;
+    setExternalCallersAllowed(allowed);
+    await Storage.setExternalCallersAllowed(allowed);
+    showMessage(
+      allowed ? 'Other extensions can now ask this signer' : 'Other extensions are refused',
+      'success'
+    );
+  }
+
   async function handleProtectWithPinClick() {
     const mode = pinEnabled ? 'disable' : 'setup';
     try {
@@ -1137,6 +1149,23 @@ function Options() {
               onChange={handleNostrLinkHandlerUrlChange}
             />
           </div>
+        </section>
+
+        <section>
+          <h3>Other extensions</h3>
+          <p className="text-help">
+            Other add-ons installed in this Firefox can ask Attest to sign, the way websites do. Each
+            is named in the prompt by its add-on id and asks like a site would. Few people need this,
+            so it stays off unless you turn it on.
+          </p>
+          <label className="checkbox-row">
+            <input
+              type="checkbox"
+              checked={externalCallersAllowed}
+              onChange={handleExternalCallersChange}
+            />
+            Let other extensions ask this signer
+          </label>
         </section>
 
         <section className="danger">

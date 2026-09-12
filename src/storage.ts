@@ -164,6 +164,21 @@ export async function setSignerEnabled(enabled: boolean): Promise<void> {
 }
 
 /**
+ * Whether other installed extensions may ask this signer at all. Off unless turned on in the
+ * options: few people use it, and until 1.27.0 it was an open door nobody could close.
+ */
+export async function isExternalCallersAllowed(): Promise<boolean> {
+  const data = await browser.storage.local.get(ConfigurationKeys.EXTERNAL_CALLERS_ALLOWED);
+  return data[ConfigurationKeys.EXTERNAL_CALLERS_ALLOWED] === true;
+}
+
+export async function setExternalCallersAllowed(allowed: boolean): Promise<void> {
+  await browser.storage.local.set({
+    [ConfigurationKeys.EXTERNAL_CALLERS_ALLOWED]: allowed
+  });
+}
+
+/**
  * Whether a key was generated that the user has not confirmed backing up yet.
  */
 export async function isKeyBackupPending(): Promise<boolean> {
