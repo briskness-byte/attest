@@ -22,7 +22,7 @@ import { rm } from 'node:fs/promises';
 
 import { loadBackground, loadModule, OWN_PAGE } from './load-background.mjs';
 import { reporter } from './harness.mjs';
-import stub, { control, reset, send } from './browser-stub.mjs';
+import stub, { control, reset, send, closeWindow } from './browser-stub.mjs';
 
 const { ok, state } = reporter();
 process.on('unhandledRejection', error => {
@@ -58,7 +58,14 @@ async function openCopyPrompt() {
 }
 
 async function pinProtectedProfile() {
+  // Close what is still open before wiping the stub. background.ts keeps its own record of PIN
+  // prompts that no reset can reach, and a prompt left waiting — a wrong PIN, here — is shared by
+  // the next request rather than opening a second window it could never answer.
+  for (const id of [...control.windows.keys()]) await closeWindow(id);
+  await settle();
+  const nextWindowId = control.nextWindowId;
   reset();
+  control.nextWindowId = nextWindowId;
   const encrypted = await encryptPrivateKey(PIN, PRIVATE_KEY);
   await stub.storage.local.set({
     pin_enabled: true,

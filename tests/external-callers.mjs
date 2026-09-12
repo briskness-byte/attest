@@ -33,11 +33,28 @@ const settle = async (rounds = 20) => {
   for (let i = 0; i < rounds; i++) await new Promise(r => setTimeout(r, 0));
 };
 
+const TIMEOUT = Symbol('timed out');
+/**
+ * Resolve with the answer, or with TIMEOUT. Without this, a request that is answered with a prompt
+ * instead of a refusal — what happened before the switch existed — leaves the await hanging and
+ * takes the whole suite down with it, reporting nothing.
+ */
+function within(ms, promise) {
+  let timer;
+  return Promise.race([
+    Promise.resolve(promise).finally(() => clearTimeout(timer)),
+    new Promise(r => { timer = setTimeout(() => r(TIMEOUT), ms); })
+  ]);
+}
+
 async function freshProfile() {
   reset();
   await stub.storage.local.set({
     private_key: PRIVATE_KEY,
-    pin_enabled: false
+    pin_enabled: false,
+    // Everything below is about what happens once other extensions are allowed; the switch itself
+    // and its default are the first case.
+    external_callers_allowed: true
   });
 }
 
@@ -48,6 +65,24 @@ async function promptedHosts() {
 }
 
 const signRequest = { type: 'signEvent', params: { event: { kind: 1, tags: [], content: 'hi' } } };
+
+console.log('\nWith the switch in the options left as it is');
+{
+  await freshProfile();
+  await stub.storage.local.remove('external_callers_allowed'); // as on a new install, or 1.26.0
+
+  const answer = await within(
+    1000,
+    sendExternal(signRequest, {
+      id: 'somebody-else@example.com',
+      url: 'moz-extension://4f9a2c1e-8b3d-4a2f-9c1e-77b0d5e6a1c2/page.html'
+    })
+  );
+  await settle();
+  ok('another extension is refused', !!answer?.error, answer === TIMEOUT ? 'no answer at all' : answer);
+  ok('  and told where it can be turned on', /options/.test(answer?.error?.message ?? ''), answer);
+  ok('  without a prompt being put in front of anybody', (await promptedHosts()).length === 0);
+}
 
 console.log('\nAn extension with an id of its own');
 {

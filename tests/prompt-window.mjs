@@ -32,7 +32,7 @@
 import { getPublicKey } from 'nostr-tools';
 import { rm } from 'node:fs/promises';
 
-import { loadBackground, OWN_PAGE } from './load-background.mjs';
+import { loadBackground, loadModule, OWN_PAGE } from './load-background.mjs';
 import { reporter } from './harness.mjs';
 import stub, { control, reset, killWindowSilently, closeWindow, send } from './browser-stub.mjs';
 
@@ -243,6 +243,52 @@ console.log('\nWhere the queue is kept, and who may answer it');
   await answerLatestPrompt();
   const event = await within(500, pending);
   ok('the prompt page can still answer it', !!event?.sig, event);
+}
+
+// ------------------------------------------------------------------ 6. two requests, one PIN
+
+console.log('\nTwo requests that both need the PIN');
+{
+  // Every other case here runs without protection; this one needs a PIN-encrypted key and a site
+  // that already holds a grant, so the only thing in the way is the unlock.
+  const { exports: pinEncryption, outdir: encDir } = await loadModule('src/pinEncryption.ts');
+  const PIN = '123456';
+  for (const id of [...control.windows.keys()]) await closeWindow(id);
+  await settle();
+  const nextWindowId = control.nextWindowId;
+  reset();
+  control.nextWindowId = nextWindowId;
+  const encrypted = await pinEncryption.encryptPrivateKey(PIN, PRIVATE_KEY);
+  await stub.storage.local.set({
+    pin_enabled: true,
+    encrypted_private_key: encrypted,
+    active_public_key: PUBLIC_KEY,
+    profiles: {
+      [PUBLIC_KEY]: {
+        privateKey: encrypted,
+        relays: {},
+        permissions: {
+          [HOST]: { condition: 'forever', level: 20, created_at: Math.floor(Date.now() / 1000), decision: 'allow' }
+        }
+      }
+    }
+  });
+
+  const first = signRequest('first');
+  const second = signRequest('second');
+  await settle();
+  const pinWindows = control.created.filter(w => w.url.includes('pin.html'));
+  ok('one PIN window opens for both', pinWindows.length === 1, pinWindows.map(w => w.url));
+
+  const id = pinWindows[0] && new URL(pinWindows[0].url).searchParams.get('id');
+  const verified = await send({ type: 'verifyPin', pin: PIN, id }, OWN_PAGE);
+  ok('the PIN is accepted', verified?.success === true, verified);
+  const [a, b] = await Promise.all([within(3000, first), within(3000, second)]);
+  ok('the first request is signed', !!a?.sig, a);
+  ok('and so is the second — it used to wait for the window to close, and then be refused',
+     !!b?.sig, b);
+
+  await rm(encDir, { recursive: true, force: true });
 }
 
 // ------------------------------------------------------------------

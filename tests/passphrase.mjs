@@ -18,7 +18,7 @@ import { rm } from 'node:fs/promises';
 
 import { loadBackground, loadModule, OWN_PAGE } from './load-background.mjs';
 import { reporter } from './harness.mjs';
-import stub, { control, reset, send } from './browser-stub.mjs';
+import stub, { control, reset, send, closeWindow } from './browser-stub.mjs';
 
 const { ok, state } = reporter();
 process.on('unhandledRejection', error => {
@@ -106,8 +106,19 @@ for (const [kind, secret, fine] of [
 
 // ------------------------------------------------------------------ 2. the flow, through background.ts
 
+/**
+ * Close what is still open. background.ts keeps its own record of PIN prompts that no reset can
+ * reach, and a prompt left waiting — a refused setup, here — is shared by the next request rather
+ * than opening a second window it could never answer.
+ */
+async function clearWindows() {
+  for (const id of [...control.windows.keys()]) await closeWindow(id);
+  await settle();
+}
+
 /** A profile with a plain key and no protection; window ids carry on, so none is ever reused. */
 async function unprotected() {
+  await clearWindows();
   const next = control.nextWindowId;
   reset();
   control.nextWindowId = next;
@@ -181,6 +192,7 @@ console.log('\nWith a PIN');
 
 console.log('\nSomebody protected by an older version');
 {
+  await clearWindows();
   const next = control.nextWindowId;
   reset();
   control.nextWindowId = next;
