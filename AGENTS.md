@@ -45,7 +45,8 @@ yarn build          # production build → dist/
 yarn typecheck      # tsc over src/, strict. release.sh refuses a release on errors in
                     # background.ts, storage.ts or common.ts; elsewhere they are reported only
 yarn watch          # rebuild on file changes
-yarn start:firefox  # run extension in Firefox via web-ext
+# To try it by hand: about:debugging → Load Temporary Add-on → dist/manifest.json. The suites in
+# tests/ start a Firefox of their own through geckodriver; see tests/harness.mjs.
 ```
 
 Load the extension from `dist/` (about:debugging → Load Temporary Add-on).
@@ -66,5 +67,10 @@ NIPs (Nostr Implementation Proposals) relevant to this project:
 - Do not add new dependencies; use only what is already in `package.json`. The one exception so far,
   agreed on 11 September 2026: `typescript` as a development dependency, for `yarn typecheck`. It
   never ships in the extension.
+- Removed on 12 September 2026: `web-ext`, which one convenience command used and which carried
+  eleven advisories, two of them with no patch at all; and `eslint` with its two plugins, which had
+  a config but no script and never ran. Its rules were stylistic (prettier governs those) or
+  correctness rules the type check now catches. Linting can come back as a flat config if it earns
+  its place.
 - Update `README.md` when a change affects user-facing behavior already documented there.
 - Group related code together (helpers, types, enums for the same domain).
