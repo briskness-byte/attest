@@ -194,20 +194,8 @@ function Popup() {
       return;
     }
 
-    // Always update active public key first
-    await Storage.setActivePublicKey(pubKey);
-
-    // Then update private key based on PIN status
-    const pinEnabled = await Storage.isPinEnabled();
-    if (pinEnabled) {
-      // When PIN protection is enabled, update encrypted private key
-      if (profile.privateKey) {
-        await Storage.setEncryptedPrivateKey(profile.privateKey);
-      }
-    } else {
-      // When PIN protection is disabled, update active private key
-      await Storage.updateActivePrivateKey(profile.privateKey);
-    }
+    // The pointer and the key material move together, in one place shared with the settings page.
+    await Storage.switchActiveProfile(pubKey, profile);
   }
 
   function clipboardCopyPubKey() {

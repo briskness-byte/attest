@@ -887,6 +887,38 @@ export async function deleteProfile(profilePublicKey: string): Promise<ProfilesC
   return profiles;
 }
 /**
+ * Makes a profile the one that signs: the stored active public key, and the key material that
+ * belongs with it.
+ *
+ * Both places that let somebody switch profile go through here — the popup and the settings page.
+ * Writing only the public key leaves the previous profile's private key in the active slot, and
+ * the extension then signs as one profile while every screen names another.
+ *
+ * With protection on, a profile that carries no encrypted key clears the slot rather than leaving
+ * the previous one behind. Signing then fails and says so, which is the failure worth having: the
+ * alternative is signing under a key the user did not choose.
+ *
+ * @param publicKey - Public key of the profile to make active
+ * @param profile - That profile, as stored
+ */
+export async function switchActiveProfile(
+  publicKey: string,
+  profile: ProfileConfig
+): Promise<void> {
+  await setActivePublicKey(publicKey);
+
+  if (await isPinEnabled()) {
+    if (profile.privateKey && isPrivateKeyEncrypted(profile.privateKey)) {
+      await setEncryptedPrivateKey(profile.privateKey);
+    } else {
+      await browser.storage.local.remove(ConfigurationKeys.ENCRYPTED_PRIVATE_KEY);
+    }
+  } else {
+    await updateActivePrivateKey(profile.privateKey || '');
+  }
+}
+
+/**
  * Returns the currently active profile.
  * Resolves the active public key from storage, with fallbacks for legacy data.
  * @throws Error when the active profile cannot be determined or is missing from storage

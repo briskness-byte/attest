@@ -218,5 +218,31 @@ ok('it asks nothing about a profile that was never saved', !!dialog?.value?.erro
    'a confirmation dialog opened');
 ok('Delete discards it', !(await b.el('xpath', "//option[contains(., '(new profile)')]")));
 
+console.log('\n=== which profile the page opens on ===');
+// The page took the first profile in storage and its dropdown changed only what was drawn. With
+// two keys it could therefore name one profile while websites were signed for by another, and a
+// switch made here looked like it had taken effect until the next signature. The rules are pinned
+// in tests/active-profile.mjs; this is the wiring, in the page itself.
+await b.switchTo(options);
+await b.openExt('options.html');
+const selected = () => b.js("return document.querySelector('#selected-profile select').value;");
+const shownOnOpen = await selected();
+const all = await b.js(
+  "return [...document.querySelectorAll('#selected-profile select option')].map(o => o.value);"
+);
+const otherProfile = all.find(value => value && value !== shownOnOpen);
+ok('there are two saved profiles to choose between', !!otherProfile, all);
+if (otherProfile) {
+  await b.click(await b.el('css selector', `#selected-profile select option[value="${otherProfile}"]`));
+  await b.wait(1000);
+  const active = await b.jsAsync(
+    `const done = arguments[arguments.length - 1];
+     browser.storage.local.get('active_public_key').then(d => done(d.active_public_key ?? null));`
+  );
+  ok('choosing a profile there makes it the one that signs', active === otherProfile, active);
+  await b.openExt('options.html');
+  ok('and the page opens on it the next time', (await selected()) === otherProfile, await selected());
+}
+
 console.log(`\n${state.fail === 0 ? '✓' : '✗'} extension pages: ${state.pass} passed, ${state.fail} failed`);
 await done();

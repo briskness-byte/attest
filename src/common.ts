@@ -556,6 +556,24 @@ export function findExistingProfileByPrivateKey(
 }
 
 /**
+ * Which profile a screen should open on.
+ *
+ * The one that signs, whenever it still exists. The settings page used to take the first key in
+ * storage instead, so with more than one profile it described the relays, permissions and key of a
+ * profile that websites were not talking to — and the page gave no sign of the difference.
+ *
+ * Falls back to the first profile only when there is no active one to honour, and to '' when there
+ * are no profiles at all, which is the same empty state the page starts in.
+ */
+export function profileToOpen(
+  profiles: ProfilesConfig,
+  activePublicKey: string | null | undefined
+): string {
+  if (activePublicKey && profiles[activePublicKey]) return activePublicKey;
+  return Object.keys(profiles)[0] ?? '';
+}
+
+/**
  * Formats a private key for display in the UI
  * @param privateKey - The private key to format
  * @param pinEnabled - Whether PIN protection is enabled

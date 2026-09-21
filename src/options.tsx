@@ -33,6 +33,7 @@ import {
   formatPermissionConditionLabel,
   formatPermissionDecisionLabel,
   migratePermissionKeys,
+  profileToOpen,
   entriesOf
 } from './common';
 // The SVG rather than the PNG: its wordmark is drawn in currentColor, so it follows the
@@ -96,23 +97,20 @@ function Options() {
    * Load options from Storage
    */
   useEffect(() => {
-    Storage.readProfiles().then(profiles => {
-      if (profiles) {
+    Promise.all([Storage.readProfiles(), Storage.getActivePublicKey()]).then(
+      ([profiles, activePublicKey]) => {
+        if (!profiles) return;
         setProfiles(profiles);
 
-        // load selected profile
-        let selectedPubKey = Object.keys(profiles)[0];
-        if (selectedProfilePubKey != '') {
-          // there is an selected public key
-          selectedPubKey = selectedProfilePubKey;
-          console.debug(`Already selected public key`);
-        }
-
+        // Open on the profile that signs, not on whichever one happens to be stored first. This
+        // page described one profile while websites talked to another, and switching below did
+        // not change that either — see profileToOpen and Storage.switchActiveProfile.
+        const selectedPubKey = profileToOpen(profiles, activePublicKey);
         console.debug('Selected pub key to be loaded', selectedPubKey);
         // this call will load the profile in the screen
         setSelectedProfilePubKey(selectedPubKey);
       }
-    });
+    );
   }, []);
 
   /**
@@ -319,10 +317,38 @@ function Options() {
     }
   }
 
-  function handleSelectedProfileChange(event) {
+  /**
+   * Switching here switches the signer, which is what a control in a settings page is taken to
+   * mean. It used to change only what this page drew, so the profile named on screen and the one
+   * signing for websites could differ with nothing to say so.
+   */
+  async function handleSelectedProfileChange(event) {
     const pubKey = event.target.value;
+    const previous = selectedProfilePubKey;
     setSelectedProfilePubKey(pubKey);
-    // loadProfile(pubKey);
+
+    // "(new profile)" exists only on this page and has no key to switch to yet.
+    if (pubKey === '') return;
+
+    const profile = profiles[pubKey];
+    if (!profile) {
+      console.warn(`The profile for pubkey '${pubKey}' does not exist.`);
+      return;
+    }
+
+    try {
+      await Storage.switchActiveProfile(pubKey, profile);
+      showMessage(
+        `Now signing as ${profile.name ?? truncatePublicKeys(nip19.npubEncode(pubKey), 12, 12)}`,
+        'success'
+      );
+    } catch (error) {
+      // Leaving the dropdown on a profile that is not the active one is the state this change
+      // exists to prevent, so put it back.
+      console.error('Could not switch the active profile', error);
+      setSelectedProfilePubKey(previous);
+      showMessage('Could not switch profile', 'warning');
+    }
   }
 
   function handleNewProfileClick(event) {
