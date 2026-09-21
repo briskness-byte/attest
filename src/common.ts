@@ -30,6 +30,31 @@ export const PERMISSIONS_REQUIRED = {
   'nip44.decrypt': 20
 };
 
+/**
+ * The only message types a web page is ever allowed to ask for. Everything else the background can
+ * do — the PIN handlers, key encryption, opening a prompt window — belongs to the extension's own
+ * pages, and a page asking for one is either confused or hostile. The content script enforces it.
+ *
+ * An allow-list rather than a block-list on purpose. Before it, the page chose `type` freely and
+ * the background answered `getCachedPin` above every permission check, handing any site the PIN
+ * that decrypts the private key. The other privileged handlers were unreachable only by accident:
+ * they read fields the bridge does not copy across.
+ *
+ * Written out rather than derived from PERMISSIONS_REQUIRED, and kept beside it so the two are read
+ * together. Deriving it would make anything later added to that table callable from every page
+ * without anyone deciding so — a signer should fail closed there, not open. tests/page-callable.mjs
+ * holds the two equal, so adding a method to one and not the other stops a release instead.
+ */
+export const CALLABLE_FROM_PAGE: ReadonlySet<string> = new Set([
+  'getPublicKey',
+  'getRelays',
+  'signEvent',
+  'nip04.encrypt',
+  'nip04.decrypt',
+  'nip44.encrypt',
+  'nip44.decrypt'
+]);
+
 /** The highest level any method asks for; granting it covers every capability. */
 export const MAX_PERMISSION_LEVEL = Math.max(...Object.values(PERMISSIONS_REQUIRED));
 

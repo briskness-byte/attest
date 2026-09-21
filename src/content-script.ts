@@ -1,6 +1,6 @@
 import browser from 'webextension-polyfill';
 
-import { buildNostrLinkUrl } from './common';
+import { buildNostrLinkUrl, CALLABLE_FROM_PAGE } from './common';
 import * as Storage from './storage';
 import { ConfigurationKeys } from './types';
 
@@ -10,24 +10,8 @@ import { ConfigurationKeys } from './types';
 // in the other file.
 const EXTENSION_CODE = 'attest';
 
-// The only message types a web page is ever allowed to ask for. Everything else the background can
-// do — the PIN handlers, key encryption, opening a prompt window — belongs to the extension's own
-// pages, and a page asking for one is either confused or hostile.
-//
-// This is an allow-list rather than a block-list on purpose. Before it, the page chose `type`
-// freely and the background answered `getCachedPin` above every permission check, handing any site
-// the PIN that decrypts the private key. The other privileged handlers were unreachable only by
-// accident: they read fields this bridge does not copy across. The next handler written without
-// arguments would have been exposed the day it was added, and nobody would have noticed.
-const CALLABLE_FROM_PAGE = new Set([
-  'getPublicKey',
-  'getRelays',
-  'signEvent',
-  'nip04.encrypt',
-  'nip04.decrypt',
-  'nip44.encrypt',
-  'nip44.decrypt'
-]);
+// What a page may ask for is CALLABLE_FROM_PAGE in common.ts — an allow-list, kept beside the
+// permission table it has to agree with. Why it is written out rather than derived is noted there.
 
 /**
  * The key a site's permissions are stored under: its origin, scheme included.

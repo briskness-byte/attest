@@ -60,7 +60,7 @@ const permissionsReady = Storage.migratePermissionsToOrigins().catch(error =>
 );
 
 /** Handlers that must never answer something living in a tab. */
-const EXTENSION_PAGES_ONLY = new Set([
+export const EXTENSION_PAGES_ONLY: ReadonlySet<string> = new Set([
   'setupPin',
   'verifyPin',
   'disablePin',

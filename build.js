@@ -6,10 +6,7 @@ const { clean } = require('esbuild-plugin-clean');
 const { copy } = require('esbuild-plugin-copy');
 const svgrPlugin = require('esbuild-plugin-svgr');
 
-const isProd =
-  process.argv.indexOf('prod') !== -1 ||
-  process.argv.indexOf('prod-hosted') !== -1;
-const isHosted = process.argv.indexOf('prod-hosted') !== -1;
+const isProd = process.argv.indexOf('prod') !== -1;
 
 esbuild
   .build({
@@ -47,9 +44,7 @@ esbuild
       copy({
         assets: [
           {
-            from: [
-              isHosted ? './src/hosted/manifest.json' : './src/manifest.json'
-            ],
+            from: ['./src/manifest.json'],
             to: ['./']
           },
           {
@@ -77,8 +72,8 @@ esbuild
     }
   })
   .then(() =>
-    console.log(`Build success. Prod=${isProd} - Hosted=${isHosted}.`)
+    console.log(`Build success. Prod=${isProd}.`)
   )
   .catch(err =>
-    console.error(`Build error. Prod=${isProd} - Hosted=${isHosted}.`, err)
+    console.error(`Build error. Prod=${isProd}.`, err)
   );

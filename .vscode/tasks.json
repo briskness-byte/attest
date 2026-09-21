@@ -3,11 +3,11 @@
   "tasks": [
     {
       "type": "npm",
-      "script": "build:hosted",
+      "script": "build",
       "group": "build",
       "problemMatcher": [],
-      "label": "npm: build:hosted",
-      "detail": "./build.js prod:hosted",
+      "label": "npm: build",
+      "detail": "./build.js prod",
       "presentation": {
         "reveal": "silent",
         "revealProblems": "onProblem",
