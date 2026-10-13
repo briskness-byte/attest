@@ -43,8 +43,8 @@ There is no minifier and no obfuscation: the file that ships is the file in this
 
 ## Install
 
-Load `dist/` as a temporary add-on from `about:debugging`, or install a signed build from
-[addons.mozilla.org](https://addons.mozilla.org/).
+Install it from [addons.mozilla.org](https://addons.mozilla.org/en-US/firefox/addon/attest/),
+which keeps it updated, or load `dist/` as a temporary add-on from `about:debugging`.
 
 ## Licence
 
