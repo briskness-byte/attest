@@ -34,7 +34,8 @@ import {
   formatPermissionDecisionLabel,
   migratePermissionKeys,
   profileToOpen,
-  entriesOf
+  entriesOf,
+  isRemoteProfile
 } from './common';
 // The SVG rather than the PNG: its wordmark is drawn in currentColor, so it follows the
 // theme. The PNG has near-black lettering baked in, which on the dark background came out
@@ -90,6 +91,14 @@ function Options() {
   let [pinCacheDuration, setPinCacheDuration] = useState<number>(10 * 1000); // Default: 10 seconds
   let [theme, setTheme] = useState<'system' | 'light' | 'dark'>('system');
   let [externalCallersAllowed, setExternalCallersAllowed] = useState(false);
+  // Connecting a remote signer: the address being typed, and where the connection has got to. An
+  // offer is a remote signer that answered and is waiting for the user to check whose key it is.
+  let [bunkerUri, setBunkerUri] = useState('');
+  let [remoteConnect, setRemoteConnect] = useState<
+    | { state: 'idle' }
+    | { state: 'connecting' }
+    | { state: 'offer'; id: string; userPubkey: string; signerPubkey: string }
+  >({ state: 'idle' });
   let [nostrLinkHandlerUrl, setNostrLinkHandlerUrl] = useState('');
   let [isNostrLinkHandlerUrlValid, setNostrLinkHandlerUrlValid] = useState(true);
 
@@ -410,7 +419,16 @@ function Options() {
   async function handleExportProfileClick() {
     // From storage, so the export carries what is stored now rather than what this page last saw.
     const profile = selectedProfilePubKey ? await Storage.getProfile(selectedProfilePubKey) : null;
-    const profileJson = JSON.stringify(profile);
+    // Never a remote signer's client key: it is a live session with that signer, and an export is
+    // text that gets pasted into places. Connecting again from another browser makes a new one.
+    const exported =
+      profile && isRemoteProfile(profile)
+        ? {
+            ...profile,
+            remote: { signerPubkey: profile.remote.signerPubkey, relays: profile.remote.relays }
+          }
+        : profile;
+    const profileJson = JSON.stringify(exported);
     setProfileExportJson(profileJson);
     setExportModalShown(true);
   }
@@ -444,6 +462,17 @@ function Options() {
     if (!newProfile) {
       console.warn(`The imported profile is empty.`);
       showMessage(`The imported profile is invalid.`, 'warning');
+      return;
+    }
+    // A remote signer is connected, not imported: pasted JSON could otherwise point this browser at
+    // a signer somebody else chose, or replace a remote profile already here. A key is what is
+    // imported; anything about a remote signer that comes with it is dropped.
+    delete newProfile.remote;
+    if (!newProfile.privateKey) {
+      showMessage(
+        'There is no private key in this profile. To sign through a remote signer, connect it under Keys instead.',
+        'warning'
+      );
       return;
     }
     // A profile exported before 1.25.0 keys its permissions on bare hosts. They are moved to
@@ -552,27 +581,117 @@ function Options() {
       discardUnsavedProfile();
       return;
     }
+    if (isRemoteProfile(profiles[selectedProfilePubKey])) {
+      await disconnectRemoteSigner();
+      return;
+    }
     if (window.confirm(`Delete the profile "${nip19.npubEncode(selectedProfilePubKey)}"?`)) {
       const updatedProfiles = await Storage.deleteProfile(selectedProfilePubKey);
       setProfiles({ ...updatedProfiles });
-
-      // if no profiles left, set the default values
-      const remainingKeys = Object.keys(updatedProfiles);
-      if (remainingKeys.length === 0) {
-        setSelectedProfilePubKey('');
-        setRelays([]);
-        setPrivateKey('');
-        return;
-      }
-
-      const activePublicKey = await Storage.getActivePublicKey();
-      setSelectedProfilePubKey(
-        activePublicKey && activePublicKey in updatedProfiles ? activePublicKey : remainingKeys[0]
-      );
+      await showProfileLeftAfterDelete(updatedProfiles);
     }
   }
 
+  /** After a delete: the profile that signs now, or the empty state. */
+  async function showProfileLeftAfterDelete(updatedProfiles: ProfilesConfig) {
+    // if no profiles left, set the default values
+    const remainingKeys = Object.keys(updatedProfiles);
+    if (remainingKeys.length === 0) {
+      setSelectedProfilePubKey('');
+      setRelays([]);
+      setPrivateKey('');
+      return;
+    }
+
+    const activePublicKey = await Storage.getActivePublicKey();
+    setSelectedProfilePubKey(
+      activePublicKey && activePublicKey in updatedProfiles ? activePublicKey : remainingKeys[0]
+    );
+  }
+
   //#endregion Profiles
+
+  //#region Remote signer
+
+  /** Asks the remote signer in the address who it signs as. Nothing is stored yet. */
+  async function connectRemoteSigner() {
+    const uri = bunkerUri.trim();
+    if (!uri) return;
+    setRemoteConnect({ state: 'connecting' });
+    // The address carries a one-time secret. It leaves this page now and is kept nowhere.
+    setBunkerUri('');
+    const answer = (await browser.runtime
+      .sendMessage({ type: 'connectRemoteSigner', uri })
+      .catch(error => ({ success: false, error: error?.message }))) as any;
+    if (answer?.success) {
+      setRemoteConnect({
+        state: 'offer',
+        id: answer.id,
+        userPubkey: answer.userPubkey,
+        signerPubkey: answer.signerPubkey
+      });
+    } else {
+      setRemoteConnect({ state: 'idle' });
+      showMessage(`Could not connect: ${answer?.error ?? 'no answer'}`, 'warning', 0);
+    }
+  }
+
+  /** The user checked the key: store the connection and sign through it from now on. */
+  async function useRemoteSigner() {
+    if (remoteConnect.state !== 'offer') return;
+    const answer = (await browser.runtime
+      .sendMessage({ type: 'confirmRemoteSigner', id: remoteConnect.id })
+      .catch(error => ({ success: false, error: error?.message }))) as any;
+    setRemoteConnect({ state: 'idle' });
+    if (!answer?.success) {
+      showMessage(`Not saved: ${answer?.error ?? 'no answer'}`, 'warning', 0);
+      return;
+    }
+    const { ['']: _unsaved, ...saved } = await Storage.readProfiles();
+    setProfiles(saved);
+    setSelectedProfilePubKey(answer.publicKey);
+    showMessage('Now signing through the remote signer', 'success');
+  }
+
+  async function cancelRemoteSigner() {
+    if (remoteConnect.state === 'offer') {
+      await browser.runtime.sendMessage({ type: 'cancelRemoteSigner', id: remoteConnect.id });
+    }
+    setRemoteConnect({ state: 'idle' });
+  }
+
+  /** Logs out of the remote signer and deletes the profile, with its client key. */
+  async function disconnectRemoteSigner() {
+    const profile = profiles[selectedProfilePubKey];
+    if (!isRemoteProfile(profile)) return;
+    const label = profile.name ? `"${profile.name}"` : nip19.npubEncode(selectedProfilePubKey);
+    if (
+      !window.confirm(
+        `Disconnect the remote signer of ${label}? This profile is deleted here, with its site permissions. The key stays with the remote signer.`
+      )
+    ) {
+      return;
+    }
+    const answer = (await browser.runtime
+      .sendMessage({ type: 'disconnectRemoteSigner', publicKey: selectedProfilePubKey })
+      .catch(error => ({ success: false, error: error?.message }))) as any;
+    if (!answer?.success) {
+      showMessage(`Could not disconnect: ${answer?.error ?? 'no answer'}`, 'warning', 0);
+      return;
+    }
+    const updatedProfiles = await Storage.readProfiles();
+    setProfiles({ ...updatedProfiles });
+    await showProfileLeftAfterDelete(updatedProfiles);
+    showMessage(
+      answer.loggedOut
+        ? 'Disconnected'
+        : 'Deleted here. The remote signer did not confirm the logout; you can end the session there too.',
+      answer.loggedOut ? 'success' : 'warning',
+      answer.loggedOut ? 3000 : 0
+    );
+  }
+
+  //#endregion Remote signer
 
   //#region Private key
 
@@ -991,6 +1110,96 @@ function Options() {
                 </button>
                 {hasSavedProfiles && <button onClick={discardUnsavedProfile}>Cancel</button>}
               </div>
+
+              <h4 className="mb-0">Or sign through a remote signer</h4>
+              <p className="text-help">
+                Paste the bunker:// address your remote signer gives you (NIP-46). Attest then holds
+                no private key for this profile: every signature, encryption and decryption is asked
+                of the remote signer, which may ask you to approve it there. Sites still need your
+                permission here first.
+              </p>
+              {remoteConnect.state === 'offer' ? (
+                <div className="remote-offer">
+                  <p>
+                    The remote signer signs as{' '}
+                    <code id="remote-offer-npub">{nip19.npubEncode(remoteConnect.userPubkey)}</code>
+                    . Check that this is the identity you expect before using it.
+                  </p>
+                  <div className="key-actions">
+                    <button className="button button-success" onClick={useRemoteSigner}>
+                      Use this remote signer
+                    </button>
+                    <button onClick={cancelRemoteSigner}>Cancel</button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div className="form-field">
+                    <label htmlFor="bunker-uri">Remote signer address:</label>
+                    <div className="input-group">
+                      <input
+                        id="bunker-uri"
+                        type="password"
+                        autoComplete="off"
+                        value={bunkerUri}
+                        placeholder="bunker://…"
+                        disabled={remoteConnect.state === 'connecting'}
+                        onChange={e => setBunkerUri(e.target.value)}
+                      />
+                      <button
+                        onClick={connectRemoteSigner}
+                        disabled={!bunkerUri.trim() || remoteConnect.state === 'connecting'}
+                      >
+                        Connect
+                      </button>
+                    </div>
+                  </div>
+                  {remoteConnect.state === 'connecting' && (
+                    <p className="text-help" id="remote-connecting">
+                      Connecting… If the remote signer asks you to log in, its page opens in a new
+                      tab. Attest waits up to 5 minutes.
+                    </p>
+                  )}
+                </>
+              )}
+            </>
+          ) : isRemoteProfile(profiles[selectedProfilePubKey]) ? (
+            <>
+              <p className="text-help">
+                This profile signs through a remote signer. Attest holds no private key for it, only
+                a key for talking to that signer
+                {pinEnabled ? ', encrypted with your PIN or passphrase' : ''}. It connects when a
+                site first needs it.
+              </p>
+              <div className="form-field">
+                <label htmlFor="remote-signer">Remote signer:</label>
+                <input
+                  id="remote-signer"
+                  type="text"
+                  readOnly
+                  value={nip19.npubEncode(profiles[selectedProfilePubKey].remote!.signerPubkey)}
+                />
+              </div>
+              <div className="form-field">
+                <label htmlFor="remote-relays">Its relays:</label>
+                <input
+                  id="remote-relays"
+                  type="text"
+                  readOnly
+                  value={profiles[selectedProfilePubKey].remote!.relays.join(', ')}
+                />
+              </div>
+              <div className="key-actions">
+                <button className="button button-danger" onClick={disconnectRemoteSigner}>
+                  Disconnect
+                </button>
+                <button
+                  onClick={handleNewProfileClick}
+                  title="Add another identity: a key, or another remote signer"
+                >
+                  <AddCircleIcon /> Add another key
+                </button>
+              </div>
             </>
           ) : (
             <>
@@ -1282,7 +1491,9 @@ function Options() {
 
       <Modal show={isExportModalShown} className="export-modal" onClose={handleExportModalClose}>
         <p>
-          This is the JSON that represents your profile (WARNING: it contains your private key):
+          {isRemoteProfile(profiles[selectedProfilePubKey])
+            ? 'This is the JSON that represents your profile. It holds no key: a remote signer is connected again, not exported.'
+            : 'This is the JSON that represents your profile (WARNING: it contains your private key):'}
         </p>
         <code>{profileExportJson}</code>
         <button onClick={handleExportProfileCopyClick}>

@@ -24,16 +24,25 @@ import {
   derivePublicKeyFromPrivateKey,
   normalizeCustomAuthorizationDurationSeconds,
   isRememberableKey,
+  isPrivateKeyEncrypted,
   isRemoteProfile,
   messageOf,
   resolveStoredPermission,
   secretProblem
 } from './common';
 import PromptManager from './PromptManager';
-import { onRemoteWaitingChanged, remoteRequest, remoteRequestsWaiting } from './remoteSigning';
+import {
+  cancelConnection,
+  confirmConnection,
+  disconnect,
+  onRemoteWaitingChanged,
+  remoteRequest,
+  remoteRequestsWaiting,
+  startConnection
+} from './remoteSigning';
 
 // For the tests, which shorten the wait; see REMOTE_LIMITS.
-export { REMOTE_LIMITS } from './remoteSigning';
+export { REMOTE_LIMITS, CONNECT_LIMITS } from './remoteSigning';
 import { getCachedPin, setCachedPin, clearCachedPin } from './pinCache';
 import { decryptPrivateKey, encryptPrivateKey } from './pinEncryption';
 import { clearUint8Array, clearStringReference } from './memoryUtils';
@@ -72,7 +81,11 @@ export const EXTENSION_PAGES_ONLY: ReadonlySet<string> = new Set([
   'openPinPrompt',
   'encryptPrivateKey',
   'getCachedPin',
-  'copyNsec'
+  'copyNsec',
+  'connectRemoteSigner',
+  'confirmRemoteSigner',
+  'cancelRemoteSigner',
+  'disconnectRemoteSigner'
 ]);
 
 /**
@@ -156,6 +169,44 @@ browser.runtime.onMessage.addListener(async (message: any, sender: browser.Runti
     } finally {
       // Clear PIN reference after use (strings are immutable, but we null the reference)
       pin = clearStringReference(pin) as any;
+    }
+  }
+
+  // Connecting a remote signer, from the options page. Each answers { success, error? }.
+  if (message.type === 'connectRemoteSigner') {
+    try {
+      return { success: true, ...(await startConnection(String(message.uri ?? ''))) };
+    } catch (error) {
+      return { success: false, error: messageOf(error) };
+    }
+  }
+  if (message.type === 'confirmRemoteSigner') {
+    try {
+      const publicKey = await confirmConnection(String(message.id ?? ''), async clientKeyHex => {
+        if (!(await Storage.isPinEnabled())) return clientKeyHex;
+        const pin = await cachedOrAskedPin();
+        if (!pin) throw new Error('The PIN is needed to store the connection encrypted');
+        return encryptPrivateKey(pin, clientKeyHex);
+      });
+      return { success: true, publicKey };
+    } catch (error) {
+      return { success: false, error: messageOf(error) };
+    }
+  }
+  if (message.type === 'cancelRemoteSigner') {
+    await cancelConnection(String(message.id ?? ''));
+    return { success: true };
+  }
+  if (message.type === 'disconnectRemoteSigner') {
+    try {
+      const loggedOut = await disconnect(String(message.publicKey ?? ''), async stored => {
+        if (!isPrivateKeyEncrypted(stored)) return stored;
+        const pin = await cachedOrAskedPin().catch(() => null);
+        return pin ? decryptPrivateKey(pin, stored) : null;
+      });
+      return { success: true, loggedOut };
+    } catch (error) {
+      return { success: false, error: messageOf(error) };
     }
   }
 
@@ -974,6 +1025,11 @@ async function unlockForRemote(): Promise<string | null> {
   const pin = await promptPin('unlock');
   if (pin) await setCachedPin(pin);
   return pin;
+}
+
+/** The cached PIN, or the one the user types now — which is cached in turn. */
+async function cachedOrAskedPin(): Promise<string | null> {
+  return (await getCachedPin()) ?? (await unlockForRemote());
 }
 
 /** Whether the profile that signs does so through a remote signer. */

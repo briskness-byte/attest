@@ -28,9 +28,10 @@ const KIND = 24133;
 
 // `listen` is where it reads requests (default: `relays`); `state.publishTo` is where it sends its
 // answers, `relays` until a test moves it — the way a signer that switched relays would.
-export function startBunker({ relays, listen = relays, secret = null, switchTo = null } = {}) {
+// `userKey`, if given, is the key it signs with; a new one otherwise.
+export function startBunker({ relays, listen = relays, secret = null, switchTo = null, userKey: given = null } = {}) {
   const signerKey = generateSecretKey();
-  const userKey = generateSecretKey();
+  const userKey = given ?? generateSecretKey();
   const signerPubkey = getPublicKey(signerKey);
   const userPubkey = getPublicKey(userKey);
   const pool = new SimplePool();
