@@ -1099,6 +1099,24 @@ export async function saveRemoteProfile(
   return profiles;
 }
 
+/**
+ * Records the relays a remote signer asked to move to (switch_relays), on the profile that signs
+ * through it. Only if that profile still talks to that signer: it may have been reconnected or
+ * deleted while the answer was on its way.
+ */
+export async function updateRemoteRelays(
+  publicKey: string,
+  signerPubkey: string,
+  relays: string[]
+): Promise<void> {
+  if (!relays.length) return;
+  const profiles = await readProfiles();
+  const remote = profiles[publicKey]?.remote;
+  if (!remote || remote.signerPubkey !== signerPubkey) return;
+  remote.relays = [...relays];
+  await browser.storage.local.set({ [ConfigurationKeys.PROFILES]: profiles });
+}
+
 //#endregion Remote signers <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 
 /**

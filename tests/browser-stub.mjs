@@ -16,7 +16,8 @@ const hub = (globalThis.__attestStub ??= {
   onWindowRemoved: [],
   onTabRemoved: [],
   onStorageChanged: [],
-  failToOpen: false // make windows.create reject, the "nothing can be shown" case
+  failToOpen: false, // make windows.create reject, the "nothing can be shown" case
+  badgeText: '' // what the toolbar badge last said
 });
 
 export const control = hub;
@@ -109,10 +110,10 @@ const browser = {
     sendMessage: async () => undefined
   },
 
-  // Present so background.ts's toolbar badge does not log a failure on every run. Not asserted on
-  // anywhere: the badge is Firefox's to draw.
+  // Present so background.ts's toolbar badge does not log a failure on every run. Only its text is
+  // kept, so a suite can see the "waiting" badge; the colour and the title are Firefox's to draw.
   browserAction: {
-    setBadgeText: async () => {},
+    setBadgeText: async ({ text }) => { hub.badgeText = text; },
     setBadgeBackgroundColor: async () => {},
     setTitle: async () => {}
   },

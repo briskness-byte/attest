@@ -30,6 +30,10 @@ import {
   secretProblem
 } from './common';
 import PromptManager from './PromptManager';
+import { onRemoteWaitingChanged, remoteRequest, remoteRequestsWaiting } from './remoteSigning';
+
+// For the tests, which shorten the wait; see REMOTE_LIMITS.
+export { REMOTE_LIMITS } from './remoteSigning';
 import { getCachedPin, setCachedPin, clearCachedPin } from './pinCache';
 import { decryptPrivateKey, encryptPrivateKey } from './pinEncryption';
 import { clearUint8Array, clearStringReference } from './memoryUtils';
@@ -233,12 +237,18 @@ browser.runtime.onInstalled.addListener(async () => {
  */
 async function updateToolbarState() {
   const enabled = await Storage.isSignerEnabled();
+  // Something is waiting on a remote signer, which may take seconds or wait for approval there.
+  const waiting = enabled && remoteRequestsWaiting() > 0;
 
   try {
-    await browser.browserAction.setBadgeText({ text: enabled ? '' : 'OFF' });
-    await browser.browserAction.setBadgeBackgroundColor({ color: '#b91c1c' });
+    await browser.browserAction.setBadgeText({ text: !enabled ? 'OFF' : waiting ? '…' : '' });
+    await browser.browserAction.setBadgeBackgroundColor({ color: waiting ? '#08589d' : '#b91c1c' });
     await browser.browserAction.setTitle({
-      title: enabled ? 'Attest' : 'Attest (disabled)'
+      title: !enabled
+        ? 'Attest (disabled)'
+        : waiting
+          ? 'Attest (waiting for the remote signer)'
+          : 'Attest'
     });
   } catch (error) {
     console.debug('Could not update the toolbar state.', error);
@@ -253,6 +263,8 @@ browser.storage.onChanged.addListener((changes, areaName) => {
 });
 
 updateToolbarState();
+// …and with what is waiting on a remote signer.
+onRemoteWaitingChanged(updateToolbarState);
 
 /**
  * Handles the closing of a prompt or PIN popup window.
@@ -371,6 +383,18 @@ async function handleContentScriptMessage({
   }
   if (type === 'getRelays') {
     return (await Storage.readActiveRelays()) || {};
+  }
+
+  // A profile that signs through a remote signer: everything else is asked of it instead. The
+  // permission check above is the same for both kinds of profile, and so is the public key check.
+  const activeProfile = await Storage.getActiveProfile().catch(() => null);
+  if (isRemoteProfile(activeProfile)) {
+    const userPubkey = await Storage.getActivePublicKey();
+    if (!userPubkey) return { error: { message: 'no public key found' } };
+    if (type === 'signEvent' && params.event?.pubkey && params.event.pubkey !== userPubkey) {
+      return { error: { message: `Public key used doesn't match the active profile.` } };
+    }
+    return remoteRequest(type, params, userPubkey, activeProfile.remote, unlockForRemote);
   }
 
   // Get decrypted private key (handles PIN protection automatically)
@@ -940,6 +964,16 @@ async function handlePinMessage(
     // Clear PIN reference after use (strings are immutable, but we null the reference)
     localPin = clearStringReference(localPin) as any;
   }
+}
+
+/**
+ * The PIN, for opening a remote signer's client key: the same window and the same cache as for a
+ * local key. Null when it was not given.
+ */
+async function unlockForRemote(): Promise<string | null> {
+  const pin = await promptPin('unlock');
+  if (pin) await setCachedPin(pin);
+  return pin;
 }
 
 /** Whether the profile that signs does so through a remote signer. */

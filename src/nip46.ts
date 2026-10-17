@@ -120,8 +120,28 @@ export function isOpenableAuthUrl(url: unknown): url is string {
 
 //#region Errors ----------------------
 
+/**
+ * What a page is told when the remote signer is the reason a call failed. The provider puts
+ * "attest: " in front of each.
+ *
+ * These are part of the API once they ship: apps match on them to tell their users what happened,
+ * so the wording does not change. A refusal carries the remote signer's own reason after a colon,
+ * when it gave one; match it with startsWith.
+ */
+export const REMOTE_SIGNER_ERRORS = {
+  timeout: 'the remote signer did not answer in time',
+  refused: 'the remote signer refused',
+  loginNeeded: 'approve the login in your remote signer, then try again',
+  busy: 'too many requests are waiting for the remote signer, try again in a moment',
+  unreachable: "could not reach the remote signer's relays"
+} as const;
+
 /** The remote signer did not answer in time. */
-export class RemoteSignerTimeout extends Error {}
+export class RemoteSignerTimeout extends Error {
+  constructor() {
+    super(REMOTE_SIGNER_ERRORS.timeout);
+  }
+}
 
 /**
  * The remote signer wants the user to log in or approve somewhere else first. `url` has been
@@ -129,7 +149,7 @@ export class RemoteSignerTimeout extends Error {}
  */
 export class RemoteSignerAuthRequired extends Error {
   constructor(readonly url: string) {
-    super('approve the login in your remote signer, then try again');
+    super(REMOTE_SIGNER_ERRORS.loginNeeded);
   }
 }
 
@@ -347,7 +367,7 @@ export class RemoteSigner {
       const entry: Pending = {
         resolve,
         reject,
-        timer: setTimeout(() => this.fail(id, timeoutError(timeoutMs)), timeoutMs),
+        timer: setTimeout(() => this.fail(id, new RemoteSignerTimeout()), timeoutMs),
         authTimeoutMs: options.authTimeoutMs,
         authSeen: false
       };
@@ -369,7 +389,7 @@ export class RemoteSigner {
       if (!pool || !this.pending.has(id)) return await answer;
       // One relay taking it is enough; the signer listens on all of them.
       await Promise.any(pool.publish(this.relays, event)).catch(() => {
-        throw new Error("could not reach any of the remote signer's relays");
+        throw new Error(REMOTE_SIGNER_ERRORS.unreachable);
       });
     } catch (error) {
       this.fail(id, error instanceof Error ? error : new Error(String(error)));
@@ -472,7 +492,7 @@ export class RemoteSigner {
     }
 
     if (message.error !== undefined && message.error !== null && message.error !== '') {
-      this.fail(message.id, new Error(`the remote signer refused: ${String(message.error)}`));
+      this.fail(message.id, new Error(`${REMOTE_SIGNER_ERRORS.refused}: ${String(message.error)}`));
       return;
     }
     if (typeof message.result !== 'string') {
@@ -515,14 +535,8 @@ export class RemoteSigner {
     // Wait for the answer that follows the login, from now on, under the longer deadline.
     clearTimeout(entry.timer);
     const authTimeoutMs = entry.authTimeoutMs;
-    entry.timer = setTimeout(() => this.fail(id, timeoutError(authTimeoutMs)), authTimeoutMs);
+    entry.timer = setTimeout(() => this.fail(id, new RemoteSignerTimeout()), authTimeoutMs);
   }
-}
-
-function timeoutError(ms: number): RemoteSignerTimeout {
-  return new RemoteSignerTimeout(
-    `the remote signer did not answer within ${Math.round(ms / 1000)} s`
-  );
 }
 
 //#region Checking what comes back ----------------------

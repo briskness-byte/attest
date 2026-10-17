@@ -35,7 +35,7 @@ for f in ('src/manifest.json', 'package.json'):
     p.write_text(json.dumps(d, indent=2) + '\n')
 PY
 
-# The files that hold the keys and the permissions are type-checked, and an error in one of them
+# The files that hold the keys, the client keys and the permissions are type-checked, and an error in one of them
 # stops the release. The rest of src/ is reported and does not block: those errors were already
 # there on the day this was added — untyped parameters and catch clauses in the React pages — and
 # gating on them would have meant clearing them under a release.
@@ -43,7 +43,7 @@ if [ "${SKIP_TYPECHECK:-0}" != "1" ]; then
     echo "type-checking"
     mkdir -p var
     node_modules/.bin/tsc --noEmit > var/typecheck.log 2>&1 || true
-    if grep -E '^src/(background|storage|common)\.ts\(' var/typecheck.log; then
+    if grep -E '^src/(background|storage|common|nip46|remoteSigning)\.ts\(' var/typecheck.log; then
         echo "! type errors in the files that hold keys and permissions — not building"; exit 1
     fi
     elsewhere=$(grep -c 'error TS' var/typecheck.log || true)
@@ -84,7 +84,7 @@ ls -1sh var/releases/
 # security-boundary checked code that had already shipped and passed whatever src/ now said.
 if [ "${SKIP_TESTS:-0}" != "1" ]; then
     echo "running tests"
-    for t in prompt-window copy-key external-callers permission-keys passphrase nostr-links decisions active-profile page-callable nip46-client remote-profile security-boundary page-answers extension-pages origins protection; do
+    for t in prompt-window copy-key external-callers permission-keys passphrase nostr-links decisions active-profile page-callable nip46-client remote-profile remote-signing security-boundary page-answers extension-pages origins protection; do
         node "tests/$t.mjs" || { echo "! tests/$t.mjs failed — not committing or tagging"; exit 1; }
     done
     echo

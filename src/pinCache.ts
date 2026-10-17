@@ -14,6 +14,18 @@ interface PinCacheEntry {
 let pinCache: PinCacheEntry | null = null;
 let expirationTimer: ReturnType<typeof setTimeout> | null = null;
 
+/** Told whenever the cached PIN is cleared, by expiry or otherwise. */
+const clearedListeners: (() => void)[] = [];
+
+/**
+ * Runs `listener` every time the cached PIN is cleared. Whatever was opened with the PIN — a remote
+ * signer's connection, decrypted with it — closes with it, so it lives no longer than a local key's
+ * PIN does.
+ */
+export function onPinCleared(listener: () => void): void {
+  clearedListeners.push(listener);
+}
+
 /**
  * Gets the cached PIN if it's still valid
  * @returns The cached PIN if valid, null if expired or not cached
@@ -103,8 +115,17 @@ export function clearCachedPin(): void {
     expirationTimer = null;
   }
 
+  const hadPin = pinCache !== null;
   clearPinCacheEntry(pinCache);
   pinCache = null;
+  if (!hadPin) return;
+  for (const listener of clearedListeners) {
+    try {
+      listener();
+    } catch (error) {
+      console.error('A listener for the PIN being cleared failed.', error);
+    }
+  }
 }
 
 /**

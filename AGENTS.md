@@ -43,7 +43,8 @@ Web page  →  content-script.js  →  background.js  ←  popup / options / pro
 yarn install
 yarn build          # production build → dist/
 yarn typecheck      # tsc over src/, strict. release.sh refuses a release on errors in
-                    # background.ts, storage.ts or common.ts; elsewhere they are reported only
+                    # background.ts, storage.ts, common.ts, nip46.ts or remoteSigning.ts;
+                    # elsewhere they are reported only
 yarn watch          # rebuild on file changes
 # To try it by hand: about:debugging → Load Temporary Add-on → dist/manifest.json. The suites in
 # tests/ start a Firefox of their own through geckodriver; see tests/harness.mjs.

@@ -175,7 +175,7 @@ console.log('\nwhen the signer does not cooperate');
   bunker.set({ mode: 'silent' });
   const s = await timed(signer.getPublicKey({ timeoutMs: SHORT }));
   ok('silence ends in a timeout at the deadline', s.error instanceof RemoteSignerTimeout && s.ms >= SHORT - 50 && s.ms < SHORT + 1000, { ms: s.ms, m: s.error?.message });
-  ok('…that says what happened', /did not answer within 2 s|did not answer within 1 s/.test(s.error?.message), s.error?.message);
+  ok('…that says what happened', s.error?.message === 'the remote signer did not answer in time', s.error?.message);
   ok('…and leaves nothing waiting behind it', signer.pending.size === 0, signer.pending.size);
 
   bunker.set({ mode: 'slow', ms: 300 });
@@ -312,7 +312,7 @@ console.log('\nrelays that cannot be reached');
 {
   const dead = new RemoteSigner(generateSecretKey(), bunker.signerPubkey, ['ws://127.0.0.1:1']);
   const d = await timed(dead.getPublicKey({ timeoutMs: 10000 }));
-  ok('fails with a reason, before the deadline', /could not reach/.test(d.error?.message) && d.ms < 10000, { ms: d.ms, m: d.error?.message });
+  ok('fails with a reason, before the deadline', d.error?.message === "could not reach the remote signer's relays" && d.ms < 10000, { ms: d.ms, m: d.error?.message });
   dead.close();
 }
 
