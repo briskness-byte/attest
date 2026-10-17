@@ -394,7 +394,7 @@ async function handleContentScriptMessage({
     if (type === 'signEvent' && params.event?.pubkey && params.event.pubkey !== userPubkey) {
       return { error: { message: `Public key used doesn't match the active profile.` } };
     }
-    return remoteRequest(type, params, userPubkey, activeProfile.remote, unlockForRemote);
+    return remoteRequest(host, type, params, userPubkey, activeProfile.remote, unlockForRemote);
   }
 
   // Get decrypted private key (handles PIN protection automatically)

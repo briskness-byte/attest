@@ -38,11 +38,13 @@ const isSigned = e => { try { return verifyEvent(e); } catch { return false; } }
 const hex = bytes => Buffer.from(bytes).toString('hex');
 
 const HOST = 'https://example.com';
+const HOST_B = 'https://other.example';
 const PAGE = { url: 'https://example.com/page' }; // a content script's sender, not one of our pages
 const PIN = '123456';
 const LOCAL_SECRET = '5c0c523f52a5b6fad39ed2403092df8cebc36318b39383bca6c00808626fab3a';
 const LOCAL = getPublicKey(Buffer.from(LOCAL_SECRET, 'hex'));
-const GRANTED = { [HOST]: { '20': { condition: 'forever', level: 20, created_at: now(), decision: 'allow' } } };
+const GRANT = { '20': { condition: 'forever', level: 20, created_at: now(), decision: 'allow' } };
+const GRANTED = { [HOST]: GRANT, [HOST_B]: GRANT };
 
 const { exports: background, outdir } = await loadModule('src/background.ts');
 const { exports: nip46, outdir: nip46Dir } = await loadModule('src/nip46.ts');
@@ -197,21 +199,68 @@ console.log('\nWhen it fails, the page is told');
   bunker.set({ mode: 'normal' });
 }
 
-console.log('\nToo many at once');
+console.log('\nMany at once, per site');
 {
   await profiles({ clientKey: await pairedClientKey() });
-  REMOTE_LIMITS.timeoutMs = 2000;
-  bunker.set({ mode: 'silent' });
-  const waiting = Array.from({ length: REMOTE_LIMITS.maxInFlight }, () => ask('signEvent', { event: template() }));
-  await wait(100);
+  REMOTE_LIMITS.timeoutMs = 30000;
+  const peerKey = generateSecretKey();
+  const peer = getPublicKey(peerKey);
+  const sealed = n => nip44.v2.encrypt('message ' + n, nip44.v2.utils.getConversationKey(peerKey, bunker.userPubkey));
+  const decrypt = (n, host = HOST) => ask('nip44.decrypt', { peer, ciphertext: sealed(n) }, host);
+  const busy = 'too many requests are waiting for the remote signer, try again in a moment';
+  const late = 'the remote signer did not answer in time';
+  ok('the limits are 8 at once and 50 queued per site, 200 queued in all',
+     REMOTE_LIMITS.perSiteInFlight === 8 && REMOTE_LIMITS.perSiteQueue === 50 && REMOTE_LIMITS.totalQueued === 200, REMOTE_LIMITS);
+
+  // A burst the size of a screenful of direct messages.
+  bunker.set({ mode: 'slow', ms: 150 }, ['nip44_decrypt']);
+  bunker.state.maxInProgress = 0;
+  const burst = await Promise.all(Array.from({ length: 40 }, (_, n) => decrypt(n)));
+  ok('a burst of 40 decrypts from one site all complete', burst.every((r, n) => r === 'message ' + n), burst.filter((r, n) => r !== 'message ' + n));
+  ok('  never more than 8 of them at the remote signer at once', bunker.state.maxInProgress === 8, bunker.state.maxInProgress);
+
+  // One site keeps the remote signer busy; another site is not stuck behind it.
+  bunker.set({ mode: 'slow', ms: 2500 }, ['nip44_decrypt']);
+  const busySite = Array.from({ length: 28 }, (_, n) => decrypt(n));
+  await wait(200);
   ok('the badge says something is waiting', control.badgeText === '…', control.badgeText);
-  const over = await timed(ask('signEvent', { event: template() }));
-  ok('one over the cap: "too many requests are waiting…"', over.value?.error?.message === 'too many requests are waiting for the remote signer, try again in a moment', over.value);
+  const other = await timed(ask('signEvent', { event: template('from elsewhere') }, HOST_B));
+  ok('a second site is answered while the first keeps the remote signer busy with 28', isSigned(other.value) && other.ms < 2000, { ms: other.ms });
+  const done = await Promise.all(busySite);
+  ok('  and the first site\'s 28 all complete, queued ones included', done.every((r, n) => r === 'message ' + n), done.map(r => r?.error?.message ?? 'ok'));
+
+  // Its queue full: refused at once, the rest still waiting.
+  REMOTE_LIMITS.timeoutMs = 1500;
+  bunker.set({ mode: 'silent' }, ['nip44_decrypt']);
+  const filling = Array.from({ length: 8 + 50 }, (_, n) => decrypt(n));
+  await wait(100);
+  const over = await timed(decrypt(99));
+  ok('a request that finds its site\'s queue full: "too many requests are waiting…"', over.value?.error?.message === busy, over.value);
   ok('  at once', over.ms < 200, over.ms);
-  const rest = await Promise.all(waiting);
-  ok('those within the cap waited for their own answer', rest.every(r => r?.error?.message === 'the remote signer did not answer in time'), rest.map(r => r?.error?.message));
+  const filled = await Promise.all(filling);
+  ok('  while the 58 it found there each got an answer of their own', filled.every(r => r?.error?.message === late), [...new Set(filled.map(r => r?.error?.message))]);
+
+  // The queues of all sites together have a wall too.
+  REMOTE_LIMITS.totalQueued = 60;
+  const siteA = Array.from({ length: 8 + 50 }, (_, n) => decrypt(n));
+  const siteB = Array.from({ length: 8 + 10 }, (_, n) => decrypt(n, HOST_B));
+  await wait(100);
+  const overall = await timed(decrypt(99, HOST_B));
+  ok('a site with room in its own queue is refused when all queues together are full', overall.value?.error?.message === busy && overall.ms < 200, overall);
+  await Promise.all([...siteA, ...siteB]);
+  REMOTE_LIMITS.totalQueued = 200;
   await settle();
   ok('the badge clears when nothing waits', control.badgeText === '', control.badgeText);
+
+  // The real deadline: 8 that time out at 30 s, and one queued 10 s later behind them. It must be
+  // answered 30 s after it arrived — not 30 s after a slot came free, which would be 50 s.
+  REMOTE_LIMITS.timeoutMs = 30000;
+  const first = Array.from({ length: 8 }, (_, n) => decrypt(n));
+  await wait(10000);
+  const queuedLate = await timed(decrypt(9));
+  ok('a queued request times out 30 s after it arrived', queuedLate.value?.error?.message === late && queuedLate.ms >= 29500 && queuedLate.ms < 31000, { ms: queuedLate.ms, m: queuedLate.value?.error?.message });
+  await Promise.all(first);
+
   bunker.set({ mode: 'normal' });
   REMOTE_LIMITS.timeoutMs = 5000;
   const after = await ask('signEvent', { event: template() });

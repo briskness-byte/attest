@@ -33,16 +33,27 @@ import {
 } from './types';
 
 /**
- * How long a page waits, and how many requests may wait at once. An object rather than constants
- * only so the tests can shorten the wait; nothing in the extension changes them.
+ * How long a page waits, and how many requests may wait. An object rather than constants only so
+ * the tests can change them; nothing in the extension does.
  *
- * The cap is for all sites together. It protects the remote signer and its relays from a page that
- * fires requests in a loop; a request over it is refused at once rather than queued.
+ * Each site has up to `perSiteInFlight` requests at the remote signer at once, and up to
+ * `perSiteQueue` more waiting behind them — enough for an app that decrypts a screenful of messages
+ * at once. A queued request keeps the deadline it had when it arrived, so it never waits longer than
+ * `timeoutMs` in all. Only a request that finds its site's queue full, or the queues of all sites
+ * together at `totalQueued`, is refused at once: that is the wall a page firing in a loop hits.
  */
 export const REMOTE_LIMITS = {
   timeoutMs: DEFAULT_TIMEOUT_MS,
-  maxInFlight: 8
+  perSiteInFlight: 8,
+  perSiteQueue: 50,
+  totalQueued: 200
 };
+
+/** A request waiting for a slot at its site. `start` hands it one, already counted as its own. */
+type Waiter = { start: () => void };
+
+/** One site's requests: how many are at the remote signer, and who waits behind them. */
+type Site = { running: number; queue: Waiter[] };
 
 type Session = {
   userPubkey: string;
@@ -63,12 +74,16 @@ let session: Session | null = null;
 let opening: Promise<Session> | null = null;
 /** Connections replaced while requests were still in flight on them. */
 const retired: Session[] = [];
+/** Requests at the remote signer, over all sites. */
 let inFlight = 0;
+/** Requests queued behind them, over all sites. */
+let queued = 0;
+const sites = new Map<string, Site>();
 const waitingListeners: (() => void)[] = [];
 
-/** How many page requests are waiting on a remote signer right now. */
+/** How many page requests are waiting on a remote signer right now, queued ones included. */
 export function remoteRequestsWaiting(): number {
-  return inFlight;
+  return inFlight + queued;
 }
 
 /** Runs `listener` whenever that number changes, for the toolbar badge. */
@@ -85,24 +100,32 @@ function setInFlight(n: number) {
 /**
  * Answers one page request through the active profile's remote signer.
  *
+ * @param site - Who asked: the permission key of the page, or of the extension. Limits are per site.
  * @param unlock - Asks the user for the PIN, as for a local key; null when they did not give it.
  */
 export async function remoteRequest(
+  site: string,
   type: string,
   params: PromptParams,
   userPubkey: string,
   remote: RemoteSignerConfig,
   unlock: () => Promise<string | null>
 ): Promise<ContentScriptMessageResponse> {
-  if (inFlight >= REMOTE_LIMITS.maxInFlight) {
-    return { error: { message: REMOTE_SIGNER_ERRORS.busy } };
-  }
+  // Everything below counts against this, waiting in the queue included. Time spent typing the PIN
+  // is added back: that is the user at Attest, not the remote signer keeping a page waiting.
+  let deadline = Date.now() + REMOTE_LIMITS.timeoutMs;
 
-  setInFlight(inFlight + 1);
+  const slot = await takeSlot(site, deadline);
+  if (slot !== 'started') return { error: { message: REMOTE_SIGNER_ERRORS[slot] } };
+
   let current: Session | null = null;
   try {
+    const unlocking = Date.now();
     current = await sessionFor(userPubkey, remote, unlock);
-    const options = { timeoutMs: REMOTE_LIMITS.timeoutMs };
+    deadline += Date.now() - unlocking;
+    const timeoutMs = deadline - Date.now();
+    if (timeoutMs <= 0) return { error: { message: REMOTE_SIGNER_ERRORS.timeout } };
+    const options = { timeoutMs };
     const { signer } = current;
 
     switch (type) {
@@ -129,8 +152,74 @@ export async function remoteRequest(
       current.relaysChecked = true;
       checkRelays(current);
     }
-    setInFlight(inFlight - 1);
+    releaseSlot(site);
   }
+}
+
+/**
+ * A slot at the remote signer for one of `site`'s requests: now if it has one free, otherwise after
+ * a wait in its queue. 'busy' when the queue is full, 'timeout' when the deadline passes in it.
+ */
+function takeSlot(site: string, deadline: number): Promise<'started' | 'busy' | 'timeout'> {
+  let entry = sites.get(site);
+  if (!entry) sites.set(site, (entry = { running: 0, queue: [] }));
+  const own = entry;
+
+  if (own.running < REMOTE_LIMITS.perSiteInFlight) {
+    own.running++;
+    setInFlight(inFlight + 1);
+    return Promise.resolve('started');
+  }
+  if (own.queue.length >= REMOTE_LIMITS.perSiteQueue || queued >= REMOTE_LIMITS.totalQueued) {
+    forgetIfIdle(site, own);
+    return Promise.resolve('busy');
+  }
+
+  return new Promise(resolve => {
+    const waiter: Waiter = {
+      start: () => {
+        clearTimeout(timer);
+        resolve('started');
+      }
+    };
+    const timer = setTimeout(() => {
+      const at = own.queue.indexOf(waiter);
+      if (at === -1) return;
+      own.queue.splice(at, 1);
+      setQueued(queued - 1);
+      forgetIfIdle(site, own);
+      resolve('timeout');
+    }, deadline - Date.now());
+    own.queue.push(waiter);
+    setQueued(queued + 1);
+  });
+}
+
+/**
+ * A request is done with its slot. The next one in the site's queue gets it as it is — counted
+ * already — so a request arriving in between cannot take it from under the queue.
+ */
+function releaseSlot(site: string) {
+  const own = sites.get(site);
+  if (!own) return;
+  const next = own.queue.shift();
+  if (next) {
+    setQueued(queued - 1);
+    next.start();
+    return;
+  }
+  own.running--;
+  setInFlight(inFlight - 1);
+  forgetIfIdle(site, own);
+}
+
+function forgetIfIdle(site: string, own: Site) {
+  if (own.running === 0 && !own.queue.length && sites.get(site) === own) sites.delete(site);
+}
+
+function setQueued(n: number) {
+  queued = n;
+  for (const listener of waitingListeners) listener();
 }
 
 /** The open connection for this profile, or a new one. */

@@ -43,6 +43,9 @@ export function startBunker({ relays, listen = relays, secret = null, switchTo =
     /** Client pubkeys that connected successfully. */
     sessions: new Set(),
     secretUsed: false,
+    /** Requests being answered slowly right now, and the most there have been at once. */
+    inProgress: 0,
+    maxInProgress: 0,
     publishTo: relays
   };
 
@@ -108,7 +111,11 @@ export function startBunker({ relays, listen = relays, secret = null, switchTo =
 
       switch (b.mode) {
         case 'silent': return;
-        case 'slow': await new Promise(r => setTimeout(r, b.ms)); return respond(event.pubkey, { id, ...answer });
+        case 'slow':
+          state.maxInProgress = Math.max(state.maxInProgress, ++state.inProgress);
+          await new Promise(r => setTimeout(r, b.ms));
+          state.inProgress--;
+          return respond(event.pubkey, { id, ...answer });
         case 'refuse': return respond(event.pubkey, { id, result: '', error: b.error ?? 'user refused' });
         case 'empty': return respond(event.pubkey, { id, result: '' });
         case 'garbage': return respond(event.pubkey, '__garbage__');
