@@ -26,7 +26,9 @@ import { SimplePool, finalizeEvent, generateSecretKey, getPublicKey, nip04, nip4
 
 const KIND = 24133;
 
-export function startBunker({ relays, secret = null, switchTo = null } = {}) {
+// `listen` is where it reads requests (default: `relays`); `state.publishTo` is where it sends its
+// answers, `relays` until a test moves it — the way a signer that switched relays would.
+export function startBunker({ relays, listen = relays, secret = null, switchTo = null } = {}) {
   const signerKey = generateSecretKey();
   const userKey = generateSecretKey();
   const signerPubkey = getPublicKey(signerKey);
@@ -40,14 +42,15 @@ export function startBunker({ relays, secret = null, switchTo = null } = {}) {
     requests: [],
     /** Client pubkeys that connected successfully. */
     sessions: new Set(),
-    secretUsed: false
+    secretUsed: false,
+    publishTo: relays
   };
 
   const respond = async (client, payload) => {
     const key = nip44.v2.utils.getConversationKey(signerKey, client);
     const content = payload === '__garbage__' ? 'not nip44 at all' : nip44.v2.encrypt(JSON.stringify(payload), key);
     const event = finalizeEvent({ kind: KIND, tags: [['p', client]], content, created_at: Math.floor(Date.now() / 1000) }, signerKey);
-    await Promise.any(pool.publish(relays, event));
+    await Promise.any(pool.publish(state.publishTo, event));
   };
 
   const honest = (client, method, params) => {
@@ -89,7 +92,7 @@ export function startBunker({ relays, secret = null, switchTo = null } = {}) {
     return e;
   };
 
-  const sub = pool.subscribe(relays, { kinds: [KIND], '#p': [signerPubkey], limit: 0 }, {
+  const sub = pool.subscribe(listen, { kinds: [KIND], '#p': [signerPubkey], limit: 0 }, {
     onevent: async event => {
       let request;
       try {

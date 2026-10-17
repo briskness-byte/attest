@@ -247,6 +247,67 @@ console.log('\nauth_url while connecting');
   bunker.set({ mode: 'normal' });
 }
 
+console.log('\nswitching relays while a request is waiting');
+{
+  // Fresh relays and a fresh signer, so the subscriptions counted below are only these. The bunker
+  // reads on both relays and asks to move from the first to the second.
+  const r1 = await startRelay();
+  const r2 = await startRelay();
+  const b = startBunker({ relays: [r1.url], listen: [r1.url, r2.url], switchTo: [r2.url] });
+  await new Promise(r => setTimeout(r, 300));
+  const baseline = r1.openSubscriptions(); // the bunker's own
+  const baseline2 = r2.openSubscriptions();
+
+  // The answer still comes on the old relay: the signer finishes what it started where it started.
+  const s1 = new RemoteSigner(generateSecretKey(), b.signerPubkey, [r1.url]);
+  await s1.connect(null, { timeoutMs: 5000 });
+  b.set({ mode: 'slow', ms: 800 }, ['get_public_key']);
+  const waiting = timed(s1.getPublicKey({ timeoutMs: 5000 }));
+  await new Promise(r => setTimeout(r, 150));
+  const moved = await outcome(s1.switchRelays({ timeoutMs: 5000 }));
+  ok('the switch happens while the request waits', JSON.stringify(moved.value) === JSON.stringify([r2.url]), moved.value ?? moved.error?.message);
+  const w = await waiting;
+  ok('the waiting request gets its answer from the old relay, not a timeout', w.value === b.userPubkey && w.ms < 3000, { ms: w.ms, e: w.error?.message });
+  await new Promise(r => setTimeout(r, 200));
+  ok('…after which the old relay is let go', r1.openSubscriptions() === baseline, { open: r1.openSubscriptions(), baseline });
+  b.state.publishTo = [r2.url]; // from here the signer answers where it moved to
+  const next = await outcome(s1.getPublicKey({ timeoutMs: 5000 }));
+  ok('…and the next request is answered on the new relay', next.value === b.userPubkey, next.error?.message);
+  await s1.getPublicKey({ timeoutMs: 5000 });
+  ok('…over one subscription there, not a new one per request', r2.openSubscriptions() === baseline2 + 1, { open: r2.openSubscriptions(), baseline2 });
+
+  // The answer comes on the new relay: the signer moved before it answered.
+  b.state.publishTo = [r1.url];
+  const s2 = new RemoteSigner(generateSecretKey(), b.signerPubkey, [r1.url]);
+  await s2.connect(null, { timeoutMs: 5000 });
+  b.set({ mode: 'slow', ms: 800 }, ['get_public_key']);
+  const waiting2 = timed(s2.getPublicKey({ timeoutMs: 5000 }));
+  await new Promise(r => setTimeout(r, 150));
+  await s2.switchRelays({ timeoutMs: 5000 });
+  b.state.publishTo = [r2.url];
+  const w2 = await waiting2;
+  ok('the waiting request gets its answer from the new relay, not a timeout', w2.value === b.userPubkey && w2.ms < 3000, { ms: w2.ms, e: w2.error?.message });
+
+  // Closing while the old subscription is still held fails the request instead of leaving it.
+  b.state.publishTo = [r1.url];
+  const s3 = new RemoteSigner(generateSecretKey(), b.signerPubkey, [r1.url]);
+  await s3.connect(null, { timeoutMs: 5000 });
+  b.set({ mode: 'silent' }, ['get_public_key']);
+  const waiting3 = timed(s3.getPublicKey({ timeoutMs: 30000 }));
+  await new Promise(r => setTimeout(r, 150));
+  await s3.switchRelays({ timeoutMs: 5000 });
+  s3.close();
+  const w3 = await waiting3;
+  ok('closing after a switch still fails what was waiting, at once', /closed/.test(w3.error?.message) && w3.ms < 2000, { ms: w3.ms, e: w3.error?.message });
+  await new Promise(r => setTimeout(r, 200));
+  ok('…and lets go of the old relay too', r1.openSubscriptions() === baseline, { open: r1.openSubscriptions(), baseline });
+
+  s1.close(); s2.close();
+  b.close();
+  await r1.close();
+  await r2.close();
+}
+
 console.log('\nrelays that cannot be reached');
 {
   const dead = new RemoteSigner(generateSecretKey(), bunker.signerPubkey, ['ws://127.0.0.1:1']);

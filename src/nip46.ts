@@ -181,6 +181,8 @@ export class RemoteSigner {
   private subscription: { close: () => void } | null = null;
   /** Settles when the relays have the subscription, so no answer is sent before anyone listens. */
   private subscribed: Promise<void> | null = null;
+  /** Subscriptions on relays switched away from, kept until the requests sent there are settled. */
+  private retiring: { subscription: { close: () => void } | null; relays: string[] }[] = [];
   private closed = false;
 
   constructor(
@@ -250,12 +252,19 @@ export class RemoteSigner {
       return null;
     }
 
-    // Listen on the new relays from the next request on. This is called right after connecting,
-    // with nothing else waiting; anything that were would lose its answer with the old relays.
-    const old = this.relays.filter(r => !relays.includes(r));
+    // New requests go to the new relays. A request already waiting may still be answered on the
+    // old ones — the signer finishes what it started where it started — so they are listened to
+    // until nothing is waiting any more, and only then let go.
+    const previous = { subscription: this.subscription, relays: this.relays };
     this.relays = relays;
-    this.unsubscribe();
-    if (old.length) this.pool?.close(old);
+    this.subscription = null;
+    this.subscribed = null;
+    if (this.pending.size) {
+      this.retiring.push(previous);
+      await this.subscribe();
+    } else {
+      this.letGo(previous);
+    }
     return this.relayList;
   }
 
@@ -317,6 +326,7 @@ export class RemoteSigner {
       this.pending.delete(id);
     }
     this.unsubscribe();
+    this.retiring = [];
     this.pool?.destroy();
     this.pool = null;
     clearUint8Array(this.clientKey);
@@ -372,8 +382,28 @@ export class RemoteSigner {
     const entry = this.pending.get(id);
     if (!entry) return;
     clearTimeout(entry.timer);
-    this.pending.delete(id);
+    this.settle(id);
     entry.reject(error);
+  }
+
+  /** One request is no longer waiting. When none is, the relays switched away from are let go. */
+  private settle(id: string) {
+    this.pending.delete(id);
+    if (this.pending.size || !this.retiring.length) return;
+    for (const old of this.retiring) this.letGo(old);
+    this.retiring = [];
+  }
+
+  private letGo({
+    subscription,
+    relays
+  }: {
+    subscription: { close: () => void } | null;
+    relays: string[];
+  }) {
+    subscription?.close();
+    const unused = relays.filter(r => !this.relays.includes(r));
+    if (unused.length) this.pool?.close(unused);
   }
 
   private subscribe(): Promise<void> {
@@ -381,7 +411,7 @@ export class RemoteSigner {
     this.pool ??= new SimplePool({ enableReconnect: true });
 
     this.subscribed = new Promise<void>(resolve => {
-      this.subscription = this.pool!.subscribe(
+      const handle = this.pool!.subscribe(
         this.relays,
         // limit 0: only what arrives from now on. Answers to earlier sessions are of no use, and a
         // relay that kept them would replay every one.
@@ -398,11 +428,15 @@ export class RemoteSigner {
           oneose: () => resolve(),
           onclose: () => {
             resolve();
+            // Only if it is still the current one. An old subscription closed by a switch reports
+            // its close later, by which time these fields hold the new one, and used to wipe them.
+            if (this.subscription !== handle) return;
             this.subscription = null;
             this.subscribed = null;
           }
         }
       );
+      this.subscription = handle;
     });
     return this.subscribed;
   }
@@ -447,7 +481,7 @@ export class RemoteSigner {
     }
 
     clearTimeout(entry.timer);
-    this.pending.delete(message.id);
+    this.settle(message.id);
     entry.resolve(message.result);
   }
 
