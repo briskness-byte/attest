@@ -6,7 +6,9 @@ import {
   PermissionConfig,
   PermissionDecision,
   PermissionEntry,
+  ProfileConfig,
   ProfilesConfig,
+  RemoteSignerConfig,
   SecretKind
 } from './types';
 
@@ -522,6 +524,13 @@ export function openPopupWindow(
  */
 export function isPrivateKeyEncrypted(privateKey: string): boolean {
   return privateKey != null && privateKey.startsWith('{');
+}
+
+/** Whether a profile signs through a remote signer rather than with a key held here. */
+export function isRemoteProfile(
+  profile: ProfileConfig | undefined | null
+): profile is ProfileConfig & { remote: RemoteSignerConfig } {
+  return !!profile?.remote;
 }
 
 /**

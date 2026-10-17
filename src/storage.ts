@@ -11,6 +11,7 @@ import {
   ProfilesConfig,
   RelaysConfig,
   PermissionEntry,
+  RemoteSignerConfig,
   SecretKind
 } from './types';
 import {
@@ -22,7 +23,8 @@ import {
   messageOf,
   shouldRemoveStoredPermission,
   entriesOf,
-  byLevel
+  byLevel,
+  isRemoteProfile
 } from './common';
 import { encryptPrivateKey, decryptPrivateKey } from './pinEncryption';
 import { clearStringReference } from './memoryUtils';
@@ -250,6 +252,7 @@ export async function enablePinProtection(pin: string): Promise<void> {
       profile.privateKey = await encryptPrivateKey(pin, profile.privateKey);
     }
   }
+  await sealClientKeys(profiles, pin);
   await updateProfiles(profiles);
 
   // Clear plain-text private key
@@ -262,26 +265,35 @@ export async function enablePinProtection(pin: string): Promise<void> {
 /**
  * Enables PIN protection with an already encrypted key (used by background script)
  * @param pin - The PIN used for encryption
- * @param encryptedKey - The already encrypted private key
+ * @param encryptedKey - The already encrypted private key, or null when the active profile signs
+ *   through a remote signer: there is no private key in the active slot then, only client keys and
+ *   the other profiles' keys, which are encrypted here.
  */
 export async function enablePinProtectionWithEncryptedKey(
   pin: string,
-  encryptedKey: string
+  encryptedKey: string | null
 ): Promise<void> {
   // Get all profiles
   const profiles = await readProfiles();
-  const currentPrivateKey = await readActivePrivateKey();
 
-  if (!currentPrivateKey) {
-    throw new Error('No active private key found');
+  if (encryptedKey === null) {
+    if (!isRemoteProfile(await activeProfileOrNull())) {
+      throw new Error('No active private key found');
+    }
+  } else {
+    const currentPrivateKey = await readActivePrivateKey();
+
+    if (!currentPrivateKey) {
+      throw new Error('No active private key found');
+    }
+
+    // Get active public key before encrypting (should already be stored, but ensure it)
+    const activePublicKey = derivePublicKeyFromPrivateKey(currentPrivateKey);
+    await setActivePublicKey(activePublicKey);
+
+    // Store encrypted key
+    await setEncryptedPrivateKey(encryptedKey);
   }
-
-  // Get active public key before encrypting (should already be stored, but ensure it)
-  const activePublicKey = derivePublicKeyFromPrivateKey(currentPrivateKey);
-  await setActivePublicKey(activePublicKey);
-
-  // Store encrypted key
-  await setEncryptedPrivateKey(encryptedKey);
 
   // Encrypt all profile private keys
   for (const pubKey in profiles) {
@@ -291,6 +303,7 @@ export async function enablePinProtectionWithEncryptedKey(
       profile.privateKey = await encryptPrivateKey(pin, profile.privateKey);
     }
   }
+  await sealClientKeys(profiles, pin);
   await updateProfiles(profiles);
 
   // Clear plain-text private key
@@ -298,6 +311,29 @@ export async function enablePinProtectionWithEncryptedKey(
 
   // Enable PIN protection
   await setPinEnabled(true);
+}
+
+/** Encrypts every remote signer's client key that is not encrypted yet, in place. */
+async function sealClientKeys(profiles: ProfilesConfig, pin: string): Promise<void> {
+  for (const pubKey in profiles) {
+    const remote = profiles[pubKey].remote;
+    if (remote?.clientKey && !isPrivateKeyEncrypted(remote.clientKey)) {
+      remote.clientKey = await encryptPrivateKey(pin, remote.clientKey);
+    }
+  }
+}
+
+/**
+ * What the PIN opens for the profile that signs: its encrypted private key, or for a profile that
+ * signs through a remote signer, its encrypted client key. Null when there is neither — protection
+ * off, or nothing stored. Unlocking checks the PIN against this.
+ */
+export async function getActiveSealedSecret(): Promise<string | null> {
+  const active = await activeProfileOrNull();
+  if (isRemoteProfile(active)) {
+    return isPrivateKeyEncrypted(active.remote.clientKey) ? active.remote.clientKey : null;
+  }
+  return getEncryptedPrivateKey();
 }
 
 /**
@@ -329,7 +365,10 @@ export async function removeActivePublicKey(): Promise<void> {
  * @param pin - The PIN to use for decryption
  */
 export async function disablePinProtection(pin: string): Promise<void> {
-  const encryptedKey = await getEncryptedPrivateKey();
+  // For a profile that signs remotely this is its client key: decrypting it checks the PIN, and
+  // there is no private key to put back in the active slot afterwards.
+  const remoteActive = isRemoteProfile(await activeProfileOrNull());
+  const encryptedKey = await getActiveSealedSecret();
   if (!encryptedKey) {
     throw new Error('No encrypted private key found');
   }
@@ -350,6 +389,15 @@ export async function disablePinProtection(pin: string): Promise<void> {
           throw new Error(`Failed to decrypt profile private key: ${messageOf(error)}`);
         }
       }
+      const remote = profile.remote;
+      if (remote?.clientKey && isPrivateKeyEncrypted(remote.clientKey)) {
+        try {
+          remote.clientKey = await decryptPrivateKey(pin, remote.clientKey);
+        } catch (error) {
+          console.error(`Failed to decrypt the client key of profile ${pubKey}:`, error);
+          throw new Error(`Failed to decrypt a remote signer's client key: ${messageOf(error)}`);
+        }
+      }
     }
     await updateProfiles(profiles);
 
@@ -362,7 +410,7 @@ export async function disablePinProtection(pin: string): Promise<void> {
 
     // Update active private key (this will also update active public key)
     // This must happen after disabling PIN protection to avoid the error
-    await updateActivePrivateKey(decryptedActiveKey);
+    if (!remoteActive) await updateActivePrivateKey(decryptedActiveKey);
   } finally {
     // Clear decrypted active key reference from memory
     // Note: Strings are immutable, but we null the reference to minimize exposure
@@ -643,6 +691,11 @@ export async function updateProfiles(profiles: ProfilesConfig): Promise<Profiles
     const profile = profiles[profilePubKey];
     const pinEnabled = await isPinEnabled();
 
+    if (isRemoteProfile(profile)) {
+      await activateRemoteProfile(profilePubKey);
+      return profiles;
+    }
+
     // Always store active public key first
     await setActivePublicKey(profilePubKey);
 
@@ -861,7 +914,9 @@ export async function deleteProfile(profilePublicKey: string): Promise<ProfilesC
       await setActivePublicKey(newActivePublicKey);
 
       // Then update private key based on PIN status
-      if (pinEnabled) {
+      if (isRemoteProfile(newActiveProfile)) {
+        await activateRemoteProfile(newActivePublicKey);
+      } else if (pinEnabled) {
         // When PIN enabled, update encrypted private key
         if (newActiveProfile.privateKey && isPrivateKeyEncrypted(newActiveProfile.privateKey)) {
           await setEncryptedPrivateKey(newActiveProfile.privateKey);
@@ -905,6 +960,11 @@ export async function switchActiveProfile(
   publicKey: string,
   profile: ProfileConfig
 ): Promise<void> {
+  if (isRemoteProfile(profile)) {
+    await activateRemoteProfile(publicKey);
+    return;
+  }
+
   await setActivePublicKey(publicKey);
 
   if (await isPinEnabled()) {
@@ -957,7 +1017,89 @@ export async function getActiveProfile(): Promise<ProfileConfig> {
   }
   return profile;
 }
+
+/** The active profile, or null when there is none to be found rather than an exception. */
+async function activeProfileOrNull(): Promise<ProfileConfig | null> {
+  try {
+    return await getActiveProfile();
+  } catch {
+    return null;
+  }
+}
 //#endregion Profiles <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+
+//#region Remote signers >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+/**
+ * Makes a profile that signs through a remote signer the active one: its public key, and nothing in
+ * either private key slot. The previous profile's key must not stay behind there — that would sign
+ * as one profile while every screen names another — and updateActivePrivateKey('') cannot be used
+ * to clear it, because it removes the active public key along with it.
+ */
+async function activateRemoteProfile(publicKey: string): Promise<void> {
+  await setActivePublicKey(publicKey);
+  await browser.storage.local.remove([
+    ConfigurationKeys.PRIVATE_KEY,
+    ConfigurationKeys.ENCRYPTED_PRIVATE_KEY
+  ]);
+}
+
+/**
+ * Stores a profile that signs through a remote signer, under the user's public key. Connecting to
+ * the same signer identity again replaces the connection and keeps the profile's name, relays and
+ * site permissions. A profile that holds the private key for that public key is never turned into a
+ * remote one: the key would be lost without anybody asking for that.
+ *
+ * Becomes the active profile only if it is the only one. Choosing remote signing is otherwise an
+ * explicit switch, like choosing any other profile.
+ *
+ * @param publicKey - The user's public key, as the remote signer reported it
+ * @param remote - The connection. `clientKey` must already be encrypted when protection is on, and
+ *   plain hex when it is off, exactly as a profile's private key must be.
+ */
+export async function saveRemoteProfile(
+  publicKey: string,
+  remote: RemoteSignerConfig
+): Promise<ProfilesConfig> {
+  if (!/^[0-9a-f]{64}$/.test(publicKey)) throw new Error('Invalid public key');
+  if (!/^[0-9a-f]{64}$/.test(remote.signerPubkey)) throw new Error('Invalid remote signer key');
+  if (!remote.relays.length) throw new Error('A remote signer needs at least one relay');
+
+  const pinEnabled = await isPinEnabled();
+  const sealed = isPrivateKeyEncrypted(remote.clientKey);
+  if (pinEnabled && !sealed) {
+    throw new Error('Cannot store a plain-text client key when PIN protection is enabled');
+  }
+  if (!pinEnabled && !/^[0-9a-f]{64}$/.test(remote.clientKey)) {
+    throw new Error('Invalid client key');
+  }
+
+  const profiles = await readProfiles();
+  const existing = profiles[publicKey];
+  if (existing && !isRemoteProfile(existing)) {
+    throw new Error(
+      'This key already has a profile here that holds its private key. Delete that profile first to sign for it through a remote signer.'
+    );
+  }
+
+  profiles[publicKey] = {
+    relays: {},
+    permissions: {},
+    ...existing,
+    privateKey: '',
+    remote: {
+      signerPubkey: remote.signerPubkey,
+      relays: [...remote.relays],
+      clientKey: remote.clientKey
+    }
+  };
+  await browser.storage.local.set({ [ConfigurationKeys.PROFILES]: profiles });
+
+  if (Object.keys(profiles).length === 1) await activateRemoteProfile(publicKey);
+  return profiles;
+}
+
+//#endregion Remote signers <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 
 /**
  * Where the prompt queue lives: session storage, which is held in memory and never written to disk.

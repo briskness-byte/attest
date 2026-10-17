@@ -24,6 +24,7 @@ import {
   derivePublicKeyFromPrivateKey,
   normalizeCustomAuthorizationDurationSeconds,
   isRememberableKey,
+  isRemoteProfile,
   messageOf,
   resolveStoredPermission,
   secretProblem
@@ -749,7 +750,10 @@ async function handlePinMessage(
   try {
     switch (type) {
       case 'setupPin': {
-        if (!localPin || !encryptedKey) {
+        // No encrypted key comes with it when the active profile signs through a remote signer:
+        // there is no private key in the active slot to encrypt, and the storage layer encrypts
+        // the client keys itself. It refuses a missing key for any other profile.
+        if (!localPin || (!encryptedKey && !(await activeIsRemote()))) {
           return { success: false, error: 'Missing PIN or encrypted key' };
         }
 
@@ -763,17 +767,19 @@ async function handlePinMessage(
 
         // The window encrypted the key itself. Before anything is written, make sure what it sent
         // opens with what it says: storing a key that does not would lock its owner out of it.
-        try {
-          await decryptPrivateKey(localPin, encryptedKey);
-        } catch (error) {
-          return { success: false, error: 'The encrypted key does not open with that secret' };
+        if (encryptedKey) {
+          try {
+            await decryptPrivateKey(localPin, encryptedKey);
+          } catch (error) {
+            return { success: false, error: 'The encrypted key does not open with that secret' };
+          }
+
+          // Enable PIN protection with the provided encrypted key
+          await Storage.setEncryptedPrivateKey(encryptedKey);
         }
 
-        // Enable PIN protection with the provided encrypted key
-        await Storage.setEncryptedPrivateKey(encryptedKey);
-
         // Encrypt all profile keys and store active public key
-        await Storage.enablePinProtectionWithEncryptedKey(localPin, encryptedKey);
+        await Storage.enablePinProtectionWithEncryptedKey(localPin, encryptedKey ?? null);
         await Storage.setPinKind(secretKind);
 
         // Cache PIN
@@ -802,8 +808,9 @@ async function handlePinMessage(
           return { success: false, error: 'Missing PIN' };
         }
 
-        // Verify PIN by attempting to decrypt
-        const encryptedKey = await Storage.getEncryptedPrivateKey();
+        // Verify PIN by attempting to decrypt: the active private key, or the active remote
+        // signer's client key
+        const encryptedKey = await Storage.getActiveSealedSecret();
         if (!encryptedKey) {
           return { success: false, error: 'No encrypted key found' };
         }
@@ -880,6 +887,12 @@ async function handlePinMessage(
           return { success: false, error: 'Missing PIN' };
         }
 
+        // A remote signer holds the key of such a profile; the client key stored for it is not
+        // the user's key, and is never handed out.
+        if (await activeIsRemote()) {
+          return { success: false, error: 'A remote signer holds this key. Attest has no copy of it.' };
+        }
+
         const storedKey = await Storage.getEncryptedPrivateKey();
         if (!storedKey) {
           return { success: false, error: 'No encrypted key found' };
@@ -926,6 +939,15 @@ async function handlePinMessage(
   } finally {
     // Clear PIN reference after use (strings are immutable, but we null the reference)
     localPin = clearStringReference(localPin) as any;
+  }
+}
+
+/** Whether the profile that signs does so through a remote signer. */
+async function activeIsRemote(): Promise<boolean> {
+  try {
+    return isRemoteProfile(await Storage.getActiveProfile());
+  } catch {
+    return false;
   }
 }
 

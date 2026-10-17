@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import browser from 'webextension-polyfill';
 import { encryptPrivateKey } from './pinEncryption';
 import * as Storage from './storage';
-import { MIN_PASSPHRASE_LENGTH, secretProblem } from './common';
+import { MIN_PASSPHRASE_LENGTH, isRemoteProfile, secretProblem } from './common';
 import { PinMessageResponse, PinMode, SecretKind } from './types';
 
 import { applyTheme } from './theme';
@@ -108,16 +108,20 @@ function PinPrompt() {
 
       setIsProcessing(true);
       try {
-        // Get current private key
+        // Get current private key. A profile that signs through a remote signer has none: the
+        // background then encrypts its client key itself, and refuses for any other profile.
         const currentPrivateKey = await Storage.readActivePrivateKey();
-        if (!currentPrivateKey) {
+        const activeProfile = await Storage.getActiveProfile().catch(() => null);
+        if (!currentPrivateKey && !isRemoteProfile(activeProfile)) {
           setError('No private key found');
           setIsProcessing(false);
           return;
         }
 
         // Encrypt the private key
-        const encryptedKey = await encryptPrivateKey(pin, currentPrivateKey);
+        const encryptedKey = currentPrivateKey
+          ? await encryptPrivateKey(pin, currentPrivateKey)
+          : undefined;
 
         // Send to background script
         const response = (await browser.runtime.sendMessage({

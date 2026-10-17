@@ -74,11 +74,30 @@ export type PermissionConfig = {
   [host: string]: { [level: string]: PermissionEntry } | PermissionEntry;
 };
 
+/**
+ * A remote signer (NIP-46) a profile signs through, instead of a private key held here. The profile
+ * is stored under the user's public key, as every profile is; `signerPubkey` is the key the remote
+ * signer talks with, which may be a different one.
+ */
+export type RemoteSignerConfig = {
+  signerPubkey: string;
+  relays: string[];
+  /**
+   * The client key: Attest's side of the session, and as sensitive as a private key — whoever holds
+   * it can ask the remote signer for anything this connection was allowed. Hex, or with protection
+   * on an encrypted blob exactly like `privateKey`.
+   */
+  clientKey: string;
+};
+
 export type ProfileConfig = {
+  /** Empty for a profile that signs through a remote signer. */
   privateKey: string;
   name?: string;
   relays?: RelaysConfig;
   permissions?: PermissionConfig;
+  /** Present when this profile signs through a remote signer. */
+  remote?: RemoteSignerConfig;
 };
 
 export type ProfilesConfig = {

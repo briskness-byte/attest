@@ -13,7 +13,7 @@
     "watch": "ag -l --js | entr ./build.js",
     "package:src": "cd src; zip -r nos2x-fox_${npm_package_version}_src.zip *; cd ..; mv src/nos2x-fox_${npm_package_version}_src.zip ./var/releases/",
     "package": "yarn run build; cd dist; zip -r archive *; cd ..; mv dist/archive.zip ./var/releases/nos2x-fox_${npm_package_version}.xpi",
-    "test": "node tests/prompt-window.mjs && node tests/copy-key.mjs && node tests/external-callers.mjs && node tests/security-boundary.mjs && node tests/permission-keys.mjs && node tests/passphrase.mjs && node tests/nostr-links.mjs && node tests/decisions.mjs && node tests/page-answers.mjs && node tests/extension-pages.mjs && node tests/origins.mjs && node tests/active-profile.mjs && node tests/page-callable.mjs && node tests/nip46-client.mjs"
+    "test": "node tests/prompt-window.mjs && node tests/copy-key.mjs && node tests/external-callers.mjs && node tests/security-boundary.mjs && node tests/permission-keys.mjs && node tests/passphrase.mjs && node tests/nostr-links.mjs && node tests/decisions.mjs && node tests/page-answers.mjs && node tests/extension-pages.mjs && node tests/origins.mjs && node tests/active-profile.mjs && node tests/page-callable.mjs && node tests/nip46-client.mjs && node tests/remote-profile.mjs"
   },
   "dependencies": {
     "date-fns": "4.1.0",
