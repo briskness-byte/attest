@@ -55,13 +55,16 @@ export async function startRelay({ reject } = {}) {
       `Sec-WebSocket-Accept: ${accept}\r\n\r\n`
     );
 
-    const client = { socket, subs: new Map() };
+    // `path` tells connections apart for deafen(): a client and a bunker on the same relay can use
+    // different paths to it.
+    const client = { socket, subs: new Map(), path: req.url, deaf: false };
     sockets.add(client);
     const send = message => { if (!socket.destroyed) socket.write(frame(JSON.stringify(message))); };
     client.send = send;
 
     let buffer = Buffer.alloc(0);
     socket.on('data', chunk => {
+      if (client.deaf) return;
       buffer = Buffer.concat([buffer, chunk]);
       for (;;) {
         if (buffer.length < 2) return;
@@ -128,6 +131,13 @@ export async function startRelay({ reject } = {}) {
     published,
     /** How many subscriptions are open right now, over every connection. */
     openSubscriptions: () => [...sockets].reduce((n, c) => n + c.subs.size, 0),
+    /**
+     * Stops listening on the open connections whose path is `path`, without closing them: a
+     * connection that went quiet while idle and still looks open. New connections work as before.
+     */
+    deafen(path) {
+      for (const c of sockets) if (c.path === path) { c.deaf = true; c.send = () => {}; }
+    },
     /** Hand an event to every matching subscription as if it had been published, unchecked. */
     inject(event) {
       for (const c of sockets) for (const [subId, filters] of c.subs) {

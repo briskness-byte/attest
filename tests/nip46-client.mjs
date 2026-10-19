@@ -308,6 +308,26 @@ console.log('\nswitching relays while a request is waiting');
   await r2.close();
 }
 
+console.log('\na connection that went quiet while idle');
+{
+  const r = await startRelay();
+  const b = startBunker({ relays: [r.url] });
+  await new Promise(res => setTimeout(res, 300));
+  const s = new RemoteSigner(generateSecretKey(), b.signerPubkey, [r.url + '/client']);
+  await s.connect(null, { timeoutMs: 10000 });
+  const first = await outcome(s.getPublicKey({ timeoutMs: 10000 }));
+  ok('works before the connection goes quiet', first.value === b.userPubkey, first.error?.message);
+  // The socket stays open but nothing gets through any more, either way, as after an idle pause.
+  r.deafen('/client');
+  const again = await timed(s.getPublicKey({ timeoutMs: 15000 }));
+  ok('the next request reconnects and is answered', again.value === b.userPubkey, { ms: again.ms, e: again.error?.message });
+  const after = await outcome(s.getPublicKey({ timeoutMs: 10000 }));
+  ok('…and so is the one after it', after.value === b.userPubkey, after.error?.message);
+  s.close();
+  b.close();
+  await r.close();
+}
+
 console.log('\nrelays that cannot be reached');
 {
   const dead = new RemoteSigner(generateSecretKey(), bunker.signerPubkey, ['ws://127.0.0.1:1']);

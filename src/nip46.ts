@@ -204,6 +204,8 @@ export class RemoteSigner {
   /** Subscriptions on relays switched away from, kept until the requests sent there are settled. */
   private retiring: { subscription: { close: () => void } | null; relays: string[] }[] = [];
   private closed = false;
+  /** Set while reconnect() runs. */
+  private reconnecting: Promise<void> | null = null;
 
   constructor(
     private readonly clientKey: Uint8Array,
@@ -388,9 +390,19 @@ export class RemoteSigner {
       const pool = this.pool;
       if (!pool || !this.pending.has(id)) return await answer;
       // One relay taking it is enough; the signer listens on all of them.
-      await Promise.any(pool.publish(this.relays, event)).catch(() => {
-        throw new Error(REMOTE_SIGNER_ERRORS.unreachable);
-      });
+      await Promise.any(pool.publish(this.relays, event))
+        .catch(async () => {
+          // A connection that went quiet while idle can still look open and swallow what is sent,
+          // and the subscription waiting for the answer with it. Seen in the hand test of 19 Oct:
+          // the first request after a pause never reached the signer, the next one did. So start
+          // once more on fresh connections before telling the page the relays are out of reach.
+          await this.reconnect();
+          if (!this.pool || !this.pending.has(id)) return;
+          await Promise.any(this.pool.publish(this.relays, event));
+        })
+        .catch(() => {
+          throw new Error(REMOTE_SIGNER_ERRORS.unreachable);
+        });
     } catch (error) {
       this.fail(id, error instanceof Error ? error : new Error(String(error)));
     }
@@ -459,6 +471,21 @@ export class RemoteSigner {
       this.subscription = handle;
     });
     return this.subscribed;
+  }
+
+  /**
+   * Drops the connections to the current relays and subscribes again on new ones. Requests that
+   * fail together share one reconnect, so a second does not tear down what the first just built.
+   */
+  private reconnect(): Promise<void> {
+    this.reconnecting ??= (async () => {
+      this.unsubscribe();
+      this.pool?.close(this.relays);
+      if (!this.closed) await this.subscribe();
+    })().finally(() => {
+      this.reconnecting = null;
+    });
+    return this.reconnecting;
   }
 
   private unsubscribe() {
