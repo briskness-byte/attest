@@ -54,7 +54,8 @@ export function startBunker({ relays, listen = relays, secret = null, switchTo =
     const key = nip44.v2.utils.getConversationKey(signerKey, client);
     const content = payload === '__garbage__' ? 'not nip44 at all' : nip44.v2.encrypt(JSON.stringify(payload), key);
     const event = finalizeEvent({ kind: KIND, tags: [['p', client]], content, created_at: Math.floor(Date.now() / 1000) }, signerKey);
-    await Promise.any(pool.publish(state.publishTo, event));
+    // A relay slow to confirm has still passed the answer on; the bunker does not care either way.
+    await Promise.any(pool.publish(state.publishTo, event)).catch(() => {});
   };
 
   const honest = (client, method, params) => {

@@ -41,7 +41,7 @@ function matches(filter, event) {
  * Starts a relay on a free port. `published` is every EVENT accepted, in order, for a test to look
  * at; `reject(event)` may return a reason to refuse one, the way a relay with a policy would.
  */
-export async function startRelay({ reject } = {}) {
+export async function startRelay({ reject, okDelayMs = 0 } = {}) {
   const sockets = new Set();
   const stored = [];
   const published = [];
@@ -101,9 +101,13 @@ export async function startRelay({ reject } = {}) {
       if (!verifyEvent(event)) { client.send(['OK', event?.id, false, 'invalid: bad signature']); return; }
       const reason = reject?.(event);
       if (reason) { client.send(['OK', event.id, false, reason]); return; }
+      // okDelayMs: a relay that passes the event on at once but is slow to confirm it, duplicates
+      // included.
+      const confirm = note => okDelayMs ? setTimeout(() => client.send(['OK', event.id, true, note]), okDelayMs) : client.send(['OK', event.id, true, note]);
+      if (published.some(e => e.id === event.id)) { confirm('duplicate:'); return; }
       published.push(event);
       if (!(event.kind >= 20000 && event.kind < 30000)) stored.push(event);
-      client.send(['OK', event.id, true, '']);
+      confirm('');
       for (const other of sockets) {
         for (const [subId, filters] of other.subs) {
           if (filters.some(f => matches(f, event))) other.send(['EVENT', subId, event]);

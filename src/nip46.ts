@@ -180,6 +180,18 @@ type Pending = {
   authSeen: boolean;
 };
 
+/**
+ * Whether a failed publish failed only because no relay said OK in time — every connection was made
+ * and the event was sent. nostr-tools reports that one case as "publish timed out".
+ */
+function onlyLateOks(error: unknown): boolean {
+  const errors = error instanceof AggregateError ? error.errors : [error];
+  return (
+    errors.length > 0 &&
+    errors.every(e => e instanceof Error && e.message === 'publish timed out')
+  );
+}
+
 /** A request id nobody can guess or collide with: 16 random bytes, as the page side uses. */
 function newRequestId(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(16));
@@ -389,20 +401,29 @@ export class RemoteSigner {
       );
       const pool = this.pool;
       if (!pool || !this.pending.has(id)) return await answer;
-      // One relay taking it is enough; the signer listens on all of them.
-      await Promise.any(pool.publish(this.relays, event))
+      // One relay taking it is enough; the signer listens on all of them. Not awaited: an answer
+      // that arrives before the relays have confirmed is used at once, not after their OKs.
+      void Promise.any(pool.publish(this.relays, event))
         .catch(async () => {
           // A connection that went quiet while idle can still look open and swallow what is sent,
           // and the subscription waiting for the answer with it. Seen in the hand test of 19 Oct:
           // the first request after a pause never reached the signer, the next one did. So start
           // once more on fresh connections before telling the page the relays are out of reach.
+          // The same event goes out again, so a relay that did take the first one drops it as a
+          // duplicate and the signer does not handle the request twice.
           await this.reconnect();
           if (!this.pool || !this.pending.has(id)) return;
           await Promise.any(this.pool.publish(this.relays, event));
         })
-        .catch(() => {
-          throw new Error(REMOTE_SIGNER_ERRORS.unreachable);
-        });
+        .catch(error => {
+          // A relay that is merely slow to say OK has usually passed the request on anyway: on
+          // 19 Oct nos.lol took eight seconds to confirm, and the signer had the request in one.
+          // So when every relay was reached and only the OK is late, the request keeps waiting for
+          // its answer until its own deadline. Out of reach means a connection that failed.
+          if (onlyLateOks(error)) return;
+          this.fail(id, new Error(REMOTE_SIGNER_ERRORS.unreachable));
+        })
+        .catch(error => this.fail(id, error instanceof Error ? error : new Error(String(error))));
     } catch (error) {
       this.fail(id, error instanceof Error ? error : new Error(String(error)));
     }

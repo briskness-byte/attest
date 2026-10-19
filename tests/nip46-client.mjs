@@ -328,6 +328,26 @@ console.log('\na connection that went quiet while idle');
   await r.close();
 }
 
+console.log('\na relay that is slow to say OK');
+{
+  // nostr-tools gives up on an OK after 4.4 s; this relay passes everything on at once and
+  // confirms after 6 s, the way nos.lol did on 19 Oct.
+  const r = await startRelay({ okDelayMs: 6000 });
+  const b = startBunker({ relays: [r.url] });
+  await new Promise(res => setTimeout(res, 300));
+  const s = new RemoteSigner(generateSecretKey(), b.signerPubkey, [r.url]);
+  const c = await timed(s.connect(null, { timeoutMs: 20000 }));
+  ok('connecting still works', !c.error, { ms: c.ms, e: c.error?.message });
+  const p = await timed(s.getPublicKey({ timeoutMs: 20000 }));
+  ok('…and so does a request, answered long before the late OK', p.value === b.userPubkey && p.ms < 4000, { ms: p.ms, e: p.error?.message });
+  b.set({ mode: 'silent' });
+  const t = await timed(s.getPublicKey({ timeoutMs: 8000 }));
+  ok('a silent signer behind a slow relay still ends at the deadline, as a timeout', t.error instanceof RemoteSignerTimeout && t.ms >= 7500 && t.ms < 12000, { ms: t.ms, e: t.error?.message });
+  s.close();
+  b.close();
+  await r.close();
+}
+
 console.log('\nrelays that cannot be reached');
 {
   const dead = new RemoteSigner(generateSecretKey(), bunker.signerPubkey, ['ws://127.0.0.1:1']);
