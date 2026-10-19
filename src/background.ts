@@ -85,8 +85,15 @@ export const EXTENSION_PAGES_ONLY: ReadonlySet<string> = new Set([
   'connectRemoteSigner',
   'confirmRemoteSigner',
   'cancelRemoteSigner',
-  'disconnectRemoteSigner'
+  'disconnectRemoteSigner',
+  'remoteSignerStatus'
 ]);
+
+/**
+ * What a page is told when Attest holds no profile at all. Stable, like the remote signer's errors:
+ * the provider puts "attest: " in front, and apps can match on it.
+ */
+export const NO_PROFILE_ERROR = 'there is no key in Attest yet, open it to create or connect one';
 
 /**
  * Did this come from one of our own pages, rather than from a content script in a web page?
@@ -196,6 +203,11 @@ browser.runtime.onMessage.addListener(async (message: any, sender: browser.Runti
   if (message.type === 'cancelRemoteSigner') {
     await cancelConnection(String(message.id ?? ''));
     return { success: true };
+  }
+  // For the popup: how many requests are waiting at the remote signer. A count only — which sites
+  // are waiting is none of the popup's business.
+  if (message.type === 'remoteSignerStatus') {
+    return { waiting: remoteRequestsWaiting() };
   }
   if (message.type === 'disconnectRemoteSigner') {
     try {
@@ -394,6 +406,12 @@ async function handleContentScriptMessage({
   // and answering it with a remembered decision never settled the call.
   if (!Object.prototype.hasOwnProperty.call(PERMISSIONS_REQUIRED, type)) {
     return { error: { message: `unknown method "${type}"` } };
+  }
+
+  // With no profile there is nothing to grant or to sign with. Said plainly, and before the
+  // permission lookup, which used to fail with "Cannot determine active profile."
+  if (!Object.keys(await Storage.readProfiles()).length) {
+    return { error: { message: NO_PROFILE_ERROR } };
   }
 
   const requiredLevel = PERMISSIONS_REQUIRED[type as keyof typeof PERMISSIONS_REQUIRED];

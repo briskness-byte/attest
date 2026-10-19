@@ -50,6 +50,8 @@ see no difference; they keep talking NIP-07 to Attest.
   asked for, signed by the profile's key.
 - **Every request ends.** After 30 seconds without an answer it fails. A site that fires many
   requests at once is queued, eight at a time per site.
+- **The popup says so.** It names the remote signer's relays, and while requests wait there, how
+  many, so you know to approve them on the other side.
 
 When a request fails, the page gets one of these errors, prefixed with `attest: `. Apps can match
 on them; the wording does not change.
@@ -61,6 +63,7 @@ on them; the wording does not change.
 | `approve the login in your remote signer, then try again` | the remote signer wants a login first |
 | `too many requests are waiting for the remote signer, try again in a moment` | the queue is full |
 | `could not reach the remote signer's relays` | the request could not be sent, even after reconnecting |
+| `there is no key in Attest yet, open it to create or connect one` | Attest holds no profile at all, local or remote |
 
 The text arrives through the page, which can forge it, so show your own message for each one rather
 than the text itself.

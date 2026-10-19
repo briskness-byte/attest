@@ -5,7 +5,12 @@ import React, { useState, useEffect } from 'react';
 
 import { ProfilesConfig } from './types';
 import * as Storage from './storage';
-import { convertHexToUint8Array, convertUint8ArrayToHex, truncatePublicKeys } from './common';
+import {
+  convertHexToUint8Array,
+  convertUint8ArrayToHex,
+  isRemoteProfile,
+  truncatePublicKeys
+} from './common';
 
 // The SVG rather than the PNG: its wordmark is drawn in currentColor, so it follows the
 // theme. The PNG has near-black lettering baked in, which on the dark background came out
@@ -30,6 +35,24 @@ function Popup() {
   let [isBackupPending, setBackupPending] = useState(false);
   let [profileName, setProfileName] = useState('');
   let [isCreatingKey, setCreatingKey] = useState(false);
+  let [remoteWaiting, setRemoteWaiting] = useState(0);
+
+  const activeProfile = publicKeyHexa ? profiles[publicKeyHexa] : undefined;
+  const activeIsRemote = isRemoteProfile(activeProfile);
+
+  // While the popup is open, how many requests wait at the remote signer. The toolbar badge only
+  // says that something does; here it can say how many, and where to go.
+  useEffect(() => {
+    if (!activeIsRemote) return;
+    const poll = () =>
+      browser.runtime
+        .sendMessage({ type: 'remoteSignerStatus' })
+        .then((status: any) => setRemoteWaiting(Number(status?.waiting) || 0))
+        .catch(() => setRemoteWaiting(0));
+    poll();
+    const timer = setInterval(poll, 1000);
+    return () => clearInterval(timer);
+  }, [activeIsRemote]);
 
   useEffect(() => {
     Storage.isSignerEnabled().then(setSignerEnabled);
@@ -230,9 +253,9 @@ function Popup() {
             <AddCircleIcon /> Create a new key
           </button>
           <p className="text-help">
-            Already have one?{' '}
+            Already have one, or a remote signer such as nsec.app or Amber?{' '}
             <a href="#" onClick={goToOptionsPage}>
-              Import it in the options page
+              Import or connect it in the options page
             </a>
             .
           </p>
@@ -296,11 +319,26 @@ function Popup() {
                 {Object.keys(profiles).map(profilePubKey => (
                   <option value={profilePubKey} key={profilePubKey}>
                     {profiles[profilePubKey].name ?? nip19.npubEncode(profilePubKey)}
+                    {isRemoteProfile(profiles[profilePubKey]) ? ' — remote signer' : ''}
                   </option>
                 ))}
               </select>
             </div>
           </div>
+          {activeIsRemote && (
+            <div className="remote-notice">
+              <p>
+                <strong>Signs through a remote signer.</strong> Your key is not in this browser.
+                Requests go to it over {activeProfile!.remote!.relays.join(', ')}.
+              </p>
+              {remoteWaiting > 0 && (
+                <p className="remote-waiting">
+                  Waiting for your remote signer: {remoteWaiting}{' '}
+                  {remoteWaiting === 1 ? 'request' : 'requests'}. Approve them there.
+                </p>
+              )}
+            </div>
+          )}
           <p>
             <a className="button" href="#" onClick={goToOptionsPage}>
               <CogIcon className="svg-fill" /> Options

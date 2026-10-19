@@ -130,6 +130,19 @@ console.log('\nNothing goes out before it is needed');
   ok('  there is a connection now', ours() === 1, ours());
 }
 
+console.log('\nWith no profile at all');
+{
+  await clearWindows();
+  reset();
+  await stub.storage.local.set({ pin_enabled: false });
+  const answer = await ask('signEvent', { event: template('nobody to sign') });
+  ok('the page is told there is no key yet', answer?.error?.message === background.NO_PROFILE_ERROR, answer);
+  ok('  in words that say what to do', /no key in Attest yet, open it to create or connect one/.test(background.NO_PROFILE_ERROR));
+  ok('  and no prompt is opened for it', control.created.length === 0, control.created.length);
+  const pub = await ask('getPublicKey');
+  ok('getPublicKey is told the same', pub?.error?.message === background.NO_PROFILE_ERROR, pub);
+}
+
 console.log('\nThe permission still decides first');
 {
   await profiles({ clientKey: await pairedClientKey(), permissions: {} });
@@ -224,6 +237,11 @@ console.log('\nMany at once, per site');
   const busySite = Array.from({ length: 28 }, (_, n) => decrypt(n));
   await wait(200);
   ok('the badge says something is waiting', control.badgeText === '…', control.badgeText);
+  const POPUP = { url: 'moz-extension://attest-test/popup.html' };
+  const status = await send({ type: 'remoteSignerStatus' }, POPUP);
+  ok('the popup is told how many', status?.waiting === 28, status);
+  const fromPage = await send({ type: 'remoteSignerStatus' }, PAGE);
+  ok('  and a page is not', fromPage?.waiting === undefined && !!fromPage?.error, fromPage);
   const other = await timed(ask('signEvent', { event: template('from elsewhere') }, HOST_B));
   ok('a second site is answered while the first keeps the remote signer busy with 28', isSigned(other.value) && other.ms < 2000, { ms: other.ms });
   const done = await Promise.all(busySite);

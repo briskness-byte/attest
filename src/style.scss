@@ -789,6 +789,22 @@ textarea,
     }
   }
 
+  .remote-notice {
+    margin-bottom: 1em;
+    padding: 0.7em;
+    border: 1px solid $color-info;
+    border-radius: $radius-default;
+
+    p {
+      margin: 0;
+    }
+
+    .remote-waiting {
+      margin-top: 0.5em;
+      font-weight: bold;
+    }
+  }
+
   .public-key {
     margin-bottom: 1em;
     background-color: $color-primary;
