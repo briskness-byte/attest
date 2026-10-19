@@ -31,6 +31,40 @@ Unlicense.
 
 The first four were offered upstream as pull requests. The security fix was reported privately.
 
+## Signing through a remote signer (NIP-46)
+
+A profile can hold a connection to a remote signer instead of a key: a bunker such as nsec.app,
+Amber or `nak bunker`, where the key lives somewhere else and Attest only asks it to sign. Sites
+see no difference; they keep talking NIP-07 to Attest.
+
+- **Connecting.** Options → Profile → New → "Or sign through a remote signer", paste the
+  `bunker://` address and press Connect. Attest shows whose key the remote signer signs with, and
+  stores nothing until you choose "Use this remote signer". Only `bunker://` addresses are
+  accepted, with `wss://` relays (`ws://` only to this machine).
+- **Permissions stay local.** A site has to be allowed in Attest first, exactly as with a key of
+  your own; only then is the request passed on.
+- **Nothing connects until it is needed.** Not at browser start, and not when the profile becomes
+  the active one: only on the first request that has to reach the remote signer, so relays do not
+  learn when this browser is online on days nothing is signed.
+- **What comes back is checked.** A signed event is used only if it is exactly the event that was
+  asked for, signed by the profile's key.
+- **Every request ends.** After 30 seconds without an answer it fails. A site that fires many
+  requests at once is queued, eight at a time per site.
+
+When a request fails, the page gets one of these errors, prefixed with `attest: `. Apps can match
+on them; the wording does not change.
+
+| Error | Meaning |
+|---|---|
+| `the remote signer did not answer in time` | no answer within 30 seconds |
+| `the remote signer refused` | the remote signer said no; its reason may follow a colon |
+| `approve the login in your remote signer, then try again` | the remote signer wants a login first |
+| `too many requests are waiting for the remote signer, try again in a moment` | the queue is full |
+| `could not reach the remote signer's relays` | the request could not be sent, even after reconnecting |
+
+The text arrives through the page, which can forge it, so show your own message for each one rather
+than the text itself.
+
 ## Building
 
 ```sh
