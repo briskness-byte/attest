@@ -102,11 +102,10 @@ echo "committed and tagged v$NEW"
 cat <<TXT
 
 next:
-  1. upload var/releases/attest-$NEW.xpi at addons.mozilla.org
+  1. upload var/releases/attest-$NEW.xpi at addons.mozilla.org (listed)
      the -src.zip goes with it when AMO asks for sources
-  2. download the SIGNED file it gives back and install that, not the one you uploaded
-  3. git push --follow-tags
+  2. git push --follow-tags
 
-when the disclosure window closes, point the update manifest at the signed file:
-  sh make-update-manifest.sh ~/Downloads/attest-$NEW-signed.xpi
+AMO updates every listed install once it approves, this browser included. signed.sh and
+make-update-manifest.sh are only for an unlisted, self-distributed build.
 TXT
